@@ -13,6 +13,7 @@ fn main() {
             Ok(stream) => {
                 let mut reader = BufReader::new(&stream);
                 let mut writer = BufWriter::new(&stream);
+
                 loop {
                     let mut buf = String::new();
                     reader.read_line(&mut buf).unwrap();
