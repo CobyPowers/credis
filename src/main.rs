@@ -1,6 +1,7 @@
 use std::{
-    io::{BufRead, BufReader, BufWriter, Read, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     net::TcpListener,
+    thread,
 };
 
 fn main() {
@@ -11,17 +12,19 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let mut reader = BufReader::new(&stream);
-                let mut writer = BufWriter::new(&stream);
+                thread::spawn(move || {
+                    let mut reader = BufReader::new(&stream);
+                    let mut writer = BufWriter::new(&stream);
 
-                loop {
-                    let mut buf = String::new();
-                    reader.read_line(&mut buf).unwrap();
-                    if buf.contains("PING") {
-                        writer.write_all("+PONG\r\n".as_bytes()).unwrap();
-                        writer.flush().unwrap();
+                    loop {
+                        let mut buf = String::new();
+                        reader.read_line(&mut buf).unwrap();
+                        if buf.contains("PING") {
+                            writer.write_all("+PONG\r\n".as_bytes()).unwrap();
+                            writer.flush().unwrap();
+                        }
                     }
-                }
+                });
             }
             Err(e) => {
                 println!("error: {}", e);
