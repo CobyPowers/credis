@@ -19,6 +19,7 @@ fn main() {
                     loop {
                         let mut buf = String::new();
                         reader.read_line(&mut buf).unwrap();
+                        buf.truncate(buf.len() - 1); // Strip newline
 
                         let cmd = match buf.find(' ') {
                             Some(i) => &buf[..i],
