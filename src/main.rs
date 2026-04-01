@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
     net::TcpListener,
 };
 
@@ -10,11 +10,18 @@ fn main() {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => loop {
-                let mut buf = String::new();
-                stream.read_to_string(&mut buf).unwrap();
-                stream.write_all("+PONG\r\n".as_bytes()).unwrap();
-            },
+            Ok(stream) => {
+                let mut reader = BufReader::new(&stream);
+                let mut writer = BufWriter::new(&stream);
+                loop {
+                    let mut buf = String::new();
+                    reader.read_line(&mut buf);
+                    if buf == "PING" {
+                        writer.write_all("+PONG\r\n".as_bytes()).unwrap();
+                        writer.flush().unwrap();
+                    }
+                }
+            }
             Err(e) => {
                 println!("error: {}", e);
             }
