@@ -15,8 +15,8 @@ fn main() {
                 let mut writer = BufWriter::new(&stream);
                 loop {
                     let mut buf = String::new();
-                    reader.read_line(&mut buf);
-                    if buf == "PING" {
+                    reader.read_line(&mut buf).unwrap();
+                    if buf == "*1\r\n$4\r\nPING\r\n" {
                         writer.write_all("+PONG\r\n".as_bytes()).unwrap();
                         writer.flush().unwrap();
                     }
