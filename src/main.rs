@@ -19,10 +19,20 @@ fn main() {
                     loop {
                         let mut buf = String::new();
                         reader.read_line(&mut buf).unwrap();
-                        if buf.contains("PING") {
+
+                        let cmd = match buf.find(' ') {
+                            Some(i) => &buf[..i],
+                            None => &buf.as_str(),
+                        };
+                        let args = &buf[cmd.len() - 1..];
+
+                        if cmd.contains("PING") {
                             writer.write_all("+PONG\r\n".as_bytes()).unwrap();
-                            writer.flush().unwrap();
+                        } else if cmd.contains("ECHO") {
+                            writer.write_all(args.as_bytes()).unwrap();
                         }
+
+                        writer.flush().unwrap();
                     }
                 });
             }
