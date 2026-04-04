@@ -163,7 +163,7 @@ fn main() {
                                         if let Some(arr) = arr_store_handle.get_mut(&list_name)
                                             && !arr.is_empty()
                                         {
-                                            resp_parser.encode(&resp_bstr!(arr.remove(0))).unwrap();
+                                            resp_parser.encode(&arr.remove(0)).unwrap();
                                         } else {
                                             resp_parser.encode(&resp_nbstr!()).unwrap();
                                         }
