@@ -167,11 +167,11 @@ fn main() {
                                         }
 
                                         let start_index = start_index.max(0) as usize;
-                                        let end_index = start_index.max(0) as usize;
+                                        let end_index = end_index.max(0) as usize;
 
                                         resp_parser
                                             .encode(&resp_arr!(
-                                                arr.get(start_index..=end_index.min(arr.len()))
+                                                arr.get(start_index..=end_index.min(arr.len() - 1))
                                                     .map(|x| x.to_vec())
                                                     .unwrap_or_default()
                                             ))
