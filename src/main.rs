@@ -14,11 +14,34 @@ use std::{
 use resp::{RespKind, RespParser, ToRespValue};
 use store::StoreEntry;
 
+const STORE_SWEEP_DELAY: Duration = Duration::from_secs(30);
+
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
     println!("Listening on 127.0.0.1:6379");
 
     let store = Arc::new(RwLock::new(HashMap::<String, StoreEntry>::new()));
+    let sweeper_store = Arc::clone(&store);
+
+    // Periodically sweep store and remove expired entries
+    thread::spawn(move || {
+        let mut store_handle = sweeper_store.write().unwrap();
+        let mut removable_keys = vec![];
+
+        loop {
+            for (k, v) in store_handle.iter() {
+                if v.is_expired() {
+                    removable_keys.push(k.clone());
+                }
+            }
+
+            for k in removable_keys.iter() {
+                store_handle.remove(k);
+            }
+
+            thread::sleep(STORE_SWEEP_DELAY);
+        }
+    });
 
     for stream in listener.incoming() {
         match stream {
@@ -60,25 +83,12 @@ fn main() {
 
                                             if let Some(entry) =
                                                 store.read().unwrap().get(encoded_key)
+                                                && !entry.is_expired()
                                             {
-                                                if !entry.is_expired() {
-                                                    // Entry exists and is valid
-                                                    resp_parser.encode(entry.value()).unwrap();
-                                                    continue;
-                                                } else {
-                                                    // Entry exists but is expired
-                                                    store
-                                                        .write()
-                                                        .unwrap()
-                                                        .remove(encoded_key)
-                                                        .unwrap();
-                                                    resp_parser
-                                                        .encode(&resp_sstr!("REMOVED"))
-                                                        .unwrap();
-                                                }
+                                                resp_parser.encode(entry.value()).unwrap();
+                                            } else {
+                                                resp_parser.encode(&resp_nbstr!()).unwrap();
                                             }
-
-                                            resp_parser.encode(&resp_nbstr!()).unwrap();
                                         }
                                     }
                                     "set" => {
