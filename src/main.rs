@@ -101,18 +101,21 @@ fn main() {
                                         if let (Some(key), Some(val)) = (args.get(0), args.get(1)) {
                                             let mut expiry = Duration::MAX;
 
-                                            match (args.get(2), args.get(3)) {
-                                                (
-                                                    Some(RespKind::BulkString(arg)),
-                                                    Some(RespKind::BulkString(expiry_ms)),
-                                                ) if arg == "PX" => {
-                                                    expiry = Duration::from_millis(
-                                                        expiry_ms.parse().unwrap(),
-                                                    );
+                                            if let (
+                                                Some(RespKind::BulkString(arg1)),
+                                                Some(RespKind::BulkString(arg2)),
+                                            ) = (args.get(2), args.get(3))
+                                            {
+                                                if arg1 == "PX" {
+                                                    if let Ok(ms) = arg2.parse::<u64>() {
+                                                        expiry = Duration::from_millis(ms);
+                                                    }
+                                                } else if arg1 == "EX" {
+                                                    if let Ok(ss) = arg2.parse::<u64>() {
+                                                        expiry = Duration::from_secs(ss);
+                                                    }
                                                 }
-                                                _ => {}
                                             }
-
                                             kv_store.write().unwrap().insert(
                                                 key.encode(),
                                                 StoreEntry::new(val.clone(), expiry),
@@ -135,7 +138,7 @@ fn main() {
                                     }
                                     "lpush" => {
                                         let list_name = match args.remove(0) {
-                                            RespKind::BulkString(val) => val.clone(),
+                                            RespKind::BulkString(val) => val,
                                             _ => continue,
                                         };
 
@@ -150,9 +153,24 @@ fn main() {
 
                                         resp_parser.encode(&resp_int!(arr.len() as i64)).unwrap();
                                     }
+                                    "lpop" => {
+                                        let list_name = match args.remove(0) {
+                                            RespKind::BulkString(val) => val,
+                                            _ => continue,
+                                        };
+
+                                        let mut arr_store_handle = arr_store.write().unwrap();
+                                        if let Some(arr) = arr_store_handle.get_mut(&list_name)
+                                            && !arr.is_empty()
+                                        {
+                                            resp_parser.encode(&resp_bstr!(arr.remove(0))).unwrap();
+                                        } else {
+                                            resp_parser.encode(&resp_nbstr!()).unwrap();
+                                        }
+                                    }
                                     "rpush" => {
                                         let list_name = match args.remove(0) {
-                                            RespKind::BulkString(val) => val.clone(),
+                                            RespKind::BulkString(val) => val,
                                             _ => continue,
                                         };
 
