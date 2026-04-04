@@ -6,7 +6,7 @@ use std::{
 
 const MAX_READ_SIZE: usize = 1024;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum RespKind {
     SimpleString(String),
     BulkString(String),
@@ -26,7 +26,7 @@ pub enum RespKind {
 }
 
 impl RespKind {
-    fn encode(&self) -> String {
+    pub fn encode(&self) -> String {
         match self {
             Self::SimpleString(val) => format!("+{}\r\n", val),
             RespKind::BulkString(val) => format!("${}\r\n{}\r\n", val.len(), val),
@@ -160,7 +160,7 @@ where
         Self::parse_data(&mut data)
     }
 
-    pub fn encode(&mut self, data: RespKind) -> Result<(), RespError> {
+    pub fn encode(&mut self, data: &RespKind) -> Result<(), RespError> {
         self.writer
             .write_all(data.encode().as_bytes())
             .map_err(|_| RespError::EncodeError)?;
@@ -311,6 +311,30 @@ where
         let double_str = Self::consume_terminated_str(data)?;
         Ok(double_str.parse().map_err(|_| RespError::InvalidDouble)?)
     }
+}
+
+macro_rules! resp_sstr {
+    ($s:expr) => {
+        RespKind::SimpleString(($s).to_string())
+    };
+}
+
+macro_rules! resp_bstr {
+    ($s:expr) => {
+        RespKind::BulkString(($s).to_string())
+    };
+}
+
+macro_rules! resp_serr {
+    ($s:expr) => {
+        RespKind::SimpleError(($s).to_string())
+    };
+}
+
+macro_rules! resp_berr {
+    ($s:expr) => {
+        RespKind::BulkError(($s).to_string())
+    };
 }
 
 // #[cfg(test)]
