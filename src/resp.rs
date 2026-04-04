@@ -29,7 +29,13 @@ impl RespKind {
     pub fn encode(&self) -> String {
         match self {
             Self::SimpleString(val) => format!("+{}\r\n", val),
-            RespKind::BulkString(val) => format!("${}\r\n{}\r\n", val.len(), val),
+            RespKind::BulkString(val) => {
+                if val.len() == 0 {
+                    "$-1\r\n".to_string()
+                } else {
+                    format!("${}\r\n{}\r\n", val.len(), val)
+                }
+            }
             RespKind::VerbatimString(encoding, val) => format!(
                 "={}\r\n{}:{}\r\n",
                 encoding.len() + val.len() + 1,
@@ -322,6 +328,12 @@ macro_rules! resp_sstr {
 macro_rules! resp_bstr {
     ($s:expr) => {
         RespKind::BulkString(($s).to_string())
+    };
+}
+
+macro_rules! resp_nbstr {
+    () => {
+        RespKind::BulkString("".to_string())
     };
 }
 

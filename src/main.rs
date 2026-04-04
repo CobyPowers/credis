@@ -1,5 +1,6 @@
 #[macro_use]
 mod resp;
+mod store;
 
 use std::{
     collections::HashMap,
@@ -7,15 +8,17 @@ use std::{
     net::TcpListener,
     sync::{Arc, RwLock},
     thread,
+    time::Duration,
 };
 
 use resp::{RespKind, RespParser, ToRespValue};
+use store::StoreEntry;
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
     println!("Listening on 127.0.0.1:6379");
 
-    let store = Arc::new(RwLock::new(HashMap::<String, RespKind>::new()));
+    let store = Arc::new(RwLock::new(HashMap::<String, StoreEntry>::new()));
 
     for stream in listener.incoming() {
         match stream {
@@ -40,34 +43,59 @@ fn main() {
                                     RespKind::BulkString(val) => val.to_lowercase(),
                                     _ => continue,
                                 };
+                                let args = data;
 
                                 match cmd.as_str() {
                                     "ping" => {
                                         resp_parser.encode(&resp_sstr!("PONG")).unwrap();
                                     }
-                                    "echo" => match data.get(0) {
-                                        Some(RespKind::BulkString(val)) => {
-                                            resp_parser
-                                                .encode(&val.clone().to_resp_value())
-                                                .unwrap();
+                                    "echo" => {
+                                        if let Some(RespKind::BulkString(val)) = args.get(0) {
+                                            resp_parser.encode(&val.to_resp_value()).unwrap();
                                         }
-                                        _ => continue,
-                                    },
+                                    }
                                     "get" => {
-                                        if let Some(key) = data.get(0) {
-                                            if let Some(val) =
-                                                store.read().unwrap().get(&key.encode())
+                                        if let Some(key) = args.get(0) {
+                                            let encoded_key = &key.encode();
+
+                                            if let Some(entry) =
+                                                store.read().unwrap().get(encoded_key)
                                             {
-                                                resp_parser.encode(val).unwrap();
+                                                if !entry.is_expired() {
+                                                    // Entry exists and is valid
+                                                    resp_parser.encode(entry.value()).unwrap();
+                                                } else {
+                                                    // Entry exists but is expired
+                                                    store
+                                                        .write()
+                                                        .unwrap()
+                                                        .remove(encoded_key)
+                                                        .unwrap();
+                                                    resp_parser.encode(&resp_nbstr!()).unwrap();
+                                                }
                                             }
                                         }
                                     }
                                     "set" => {
-                                        if let (Some(key), Some(val)) = (data.get(0), data.get(1)) {
-                                            store
-                                                .write()
-                                                .unwrap()
-                                                .insert(key.encode(), val.clone());
+                                        if let (Some(key), Some(val)) = (args.get(0), args.get(1)) {
+                                            let mut expiry = Duration::MAX;
+
+                                            match (args.get(2), args.get(3)) {
+                                                (
+                                                    Some(RespKind::BulkString(arg)),
+                                                    Some(RespKind::BulkString(expiry_ms)),
+                                                ) if arg == "PX" => {
+                                                    expiry = Duration::from_millis(
+                                                        expiry_ms.parse().unwrap(),
+                                                    );
+                                                }
+                                                _ => {}
+                                            }
+
+                                            store.write().unwrap().insert(
+                                                key.encode(),
+                                                StoreEntry::new(val.clone(), expiry),
+                                            );
                                             resp_parser.encode(&resp_sstr!("OK")).unwrap();
                                         }
                                     }
