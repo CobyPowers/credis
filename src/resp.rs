@@ -355,6 +355,12 @@ macro_rules! resp_berr {
     };
 }
 
+macro_rules! resp_arr {
+    ($v:expr) => {
+        RespKind::Array($v)
+    };
+}
+
 // #[cfg(test)]
 // mod tests {
 //     use super::*;

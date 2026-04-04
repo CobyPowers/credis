@@ -127,7 +127,7 @@ fn main() {
                                         };
 
                                         let mut arr_store_handle = arr_store.write().unwrap();
-                                        let entry = arr_store_handle
+                                        let arr = arr_store_handle
                                             .entry(list_name)
                                             .and_modify(|arr| {
                                                 args.iter()
@@ -135,7 +135,37 @@ fn main() {
                                             })
                                             .or_insert(args.clone());
 
-                                        resp_parser.encode(&resp_int!(entry.len() as i64)).unwrap();
+                                        resp_parser.encode(&resp_int!(arr.len() as i64)).unwrap();
+                                    }
+                                    "lrange" => {
+                                        let list_name = match args.get(0) {
+                                            Some(RespKind::BulkString(val)) => val,
+                                            _ => continue,
+                                        };
+
+                                        let start_index: usize = match args.get(1) {
+                                            Some(RespKind::BulkString(val)) => val.parse().unwrap(),
+                                            _ => continue,
+                                        };
+
+                                        let end_index: usize = match args.get(2) {
+                                            Some(RespKind::BulkString(val)) => val.parse().unwrap(),
+                                            _ => continue,
+                                        };
+
+                                        let arr_store_handle = arr_store.read().unwrap();
+                                        let arr = arr_store_handle
+                                            .get(list_name)
+                                            .cloned()
+                                            .unwrap_or_default();
+
+                                        resp_parser
+                                            .encode(&resp_arr!(
+                                                arr.get(start_index..end_index)
+                                                    .map(|x| x.to_vec())
+                                                    .unwrap_or_default()
+                                            ))
+                                            .unwrap();
                                     }
                                     _ => {
                                         resp_parser
