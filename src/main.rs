@@ -36,6 +36,11 @@ fn main() {
                                 };
 
                                 match cmd.as_str() {
+                                    "ping" => {
+                                        resp_parser
+                                            .encode(RespKind::SimpleString("PONG".to_string()))
+                                            .unwrap();
+                                    }
                                     "echo" => match data.get(0) {
                                         Some(RespKind::BulkString(val)) => {
                                             resp_parser
