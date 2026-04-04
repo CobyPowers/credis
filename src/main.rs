@@ -68,6 +68,7 @@ fn main() {
                                                 .write()
                                                 .unwrap()
                                                 .insert(key.encode(), val.clone());
+                                            resp_parser.encode(&resp_sstr!("OK")).unwrap();
                                         }
                                     }
                                     _ => {
