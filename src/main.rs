@@ -3,7 +3,7 @@ mod resp;
 mod store;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, btree_map::Keys},
     io::{BufReader, BufWriter},
     net::TcpListener,
     sync::{Arc, RwLock},
@@ -119,6 +119,19 @@ fn main() {
                                             );
                                             resp_parser.encode(&resp_sstr!("OK")).unwrap();
                                         }
+                                    }
+                                    "llen" => {
+                                        let list_name = match args.remove(0) {
+                                            RespKind::BulkString(val) => val,
+                                            _ => continue,
+                                        };
+
+                                        let arr_store_handle = arr_store.read().unwrap();
+                                        let arr_len = arr_store_handle
+                                            .get(&list_name)
+                                            .map_or(0, |arr| arr.len());
+
+                                        resp_parser.encode(&resp_int!(arr_len as i64)).unwrap();
                                     }
                                     "lpush" => {
                                         let list_name = match args.remove(0) {
