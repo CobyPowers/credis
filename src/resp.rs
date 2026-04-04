@@ -151,11 +151,12 @@ where
 
     pub fn decode(&mut self) -> Result<RespKind, RespError> {
         let mut buf = [0u8; MAX_READ_SIZE];
-        self.reader
+        let bytes_read = self
+            .reader
             .read(&mut buf)
             .map_err(|_| RespError::DecodeError)?;
 
-        let mut data = str::from_utf8(&buf).map_err(|_| RespError::DecodeError)?;
+        let mut data = str::from_utf8(&buf[..bytes_read]).map_err(|_| RespError::DecodeError)?;
         Self::parse_data(&mut data)
     }
 
@@ -163,6 +164,7 @@ where
         self.writer
             .write_all(data.encode().as_bytes())
             .map_err(|_| RespError::EncodeError)?;
+        self.writer.flush().map_err(|_| RespError::EncodeError)?;
         Ok(())
     }
 

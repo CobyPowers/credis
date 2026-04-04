@@ -10,6 +10,7 @@ use resp::{RespKind, RespParser, ToRespValue};
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    println!("Listening on 127.0.0.1:6379");
 
     for stream in listener.incoming() {
         match stream {
@@ -20,16 +21,21 @@ fn main() {
 
                     loop {
                         match resp_parser.decode() {
+                            Ok(RespKind::SimpleString(val)) => {
+                                if val == "PING" {
+                                    resp_parser
+                                        .encode(RespKind::SimpleString("PONG".to_string()))
+                                        .unwrap();
+                                }
+                            }
                             Ok(RespKind::Array(mut data)) => {
                                 let cmd = match data.remove(0) {
+                                    RespKind::SimpleString(val) => val.to_lowercase(),
                                     RespKind::BulkString(val) => val.to_lowercase(),
                                     _ => continue,
                                 };
 
                                 match cmd.as_str() {
-                                    "ping" => {
-                                        resp_parser.encode("PONG".to_resp_value()).unwrap();
-                                    }
                                     "echo" => match data.get(0) {
                                         Some(RespKind::BulkString(val)) => {
                                             resp_parser
