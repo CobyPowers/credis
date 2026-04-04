@@ -25,10 +25,10 @@ fn main() {
 
     // Periodically sweep store and remove expired entries
     thread::spawn(move || {
-        let mut store_handle = sweeper_store.write().unwrap();
-        let mut removable_keys = vec![];
-
         loop {
+            let mut store_handle = sweeper_store.write().unwrap();
+            let mut removable_keys = vec![];
+
             for (k, v) in store_handle.iter() {
                 if v.is_expired() {
                     removable_keys.push(k.clone());
