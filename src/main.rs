@@ -162,13 +162,12 @@ fn main() {
                                         if start_index < 0 {
                                             start_index += arr.len() as i64;
                                         }
-
                                         if end_index < 0 {
                                             end_index += arr.len() as i64;
                                         }
 
-                                        let start_index = start_index as usize;
-                                        let end_index = start_index as usize;
+                                        let start_index = start_index.max(0) as usize;
+                                        let end_index = start_index.max(0) as usize;
 
                                         resp_parser
                                             .encode(&resp_arr!(
