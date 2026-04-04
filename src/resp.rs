@@ -29,46 +29,46 @@ impl RespKind {
     pub fn encode(&self) -> String {
         match self {
             Self::SimpleString(val) => format!("+{}\r\n", val),
-            RespKind::BulkString(val) => {
-                if val.len() == 0 {
+            Self::BulkString(val) => {
+                if val.is_empty() {
                     "$-1\r\n".to_string()
                 } else {
                     format!("${}\r\n{}\r\n", val.len(), val)
                 }
             }
-            RespKind::VerbatimString(encoding, val) => format!(
+            Self::VerbatimString(encoding, val) => format!(
                 "={}\r\n{}:{}\r\n",
                 encoding.len() + val.len() + 1,
                 encoding,
                 val,
             ),
-            RespKind::Integer(val) => format!(":{:+}\r\n", val),
-            RespKind::Double(val) => format!(",{:.2e}\r\n", val),
-            RespKind::BigNumber(val) => format!("({}\r\n", val),
-            RespKind::SimpleError(val) => format!("-{}\r\n", val),
-            RespKind::BulkError(val) => format!("!{}\r\n{}\r\n", val.len(), val),
+            Self::Integer(val) => format!(":{:+}\r\n", val),
+            Self::Double(val) => format!(",{:.2e}\r\n", val),
+            Self::BigNumber(val) => format!("({}\r\n", val),
+            Self::SimpleError(val) => format!("-{}\r\n", val),
+            Self::BulkError(val) => format!("!{}\r\n{}\r\n", val.len(), val),
             // TODO: Find a better way to consolidate encode matches
-            RespKind::Array(arr) => {
+            Self::Array(arr) => {
                 let vals: Vec<String> = arr.iter().map(|x| x.encode()).collect();
                 format!("*{}\r\n{}\r\n", arr.len(), vals.join(""))
             }
-            RespKind::Push(arr) => {
+            Self::Push(arr) => {
                 let vals: Vec<String> = arr.iter().map(|x| x.encode()).collect();
                 format!(">{}\r\n{}\r\n", arr.len(), vals.join(""))
             }
-            RespKind::Set(arr) => {
+            Self::Set(arr) => {
                 let vals: Vec<String> = arr.iter().map(|x| x.encode()).collect();
                 format!("~{}\r\n{}\r\n", arr.len(), vals.join(""))
             }
-            RespKind::Map(map) => {
+            Self::Map(map) => {
                 let vals: Vec<String> = map.iter().map(|(k, v)| k.clone() + &v.encode()).collect();
                 format!("*{}\r\n{}\r\n", vals.len(), vals.join(""))
             }
-            RespKind::Attributes(map) => {
+            Self::Attributes(map) => {
                 let vals: Vec<String> = map.iter().map(|(k, v)| k.clone() + &v.encode()).collect();
                 format!("|{}\r\n{}\r\n", vals.len(), vals.join(""))
             }
-            RespKind::Null => "_\r\n".to_string(),
+            Self::Null => "_\r\n".to_string(),
         }
     }
 }

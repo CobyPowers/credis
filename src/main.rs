@@ -64,6 +64,7 @@ fn main() {
                                                 if !entry.is_expired() {
                                                     // Entry exists and is valid
                                                     resp_parser.encode(entry.value()).unwrap();
+                                                    continue;
                                                 } else {
                                                     // Entry exists but is expired
                                                     store
@@ -71,10 +72,10 @@ fn main() {
                                                         .unwrap()
                                                         .remove(encoded_key)
                                                         .unwrap();
-                                                    println!("{:?}", &resp_nbstr!());
-                                                    resp_parser.encode(&resp_nbstr!()).unwrap();
                                                 }
                                             }
+
+                                            resp_parser.encode(&resp_nbstr!()).unwrap();
                                         }
                                     }
                                     "set" => {
