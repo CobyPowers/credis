@@ -14,7 +14,7 @@ use std::{
 use resp::{RespKind, RespParser, ToRespValue};
 use store::StoreEntry;
 
-const STORE_SWEEP_DELAY: Duration = Duration::from_secs(30);
+const STORE_SWEEP_WAIT: Duration = Duration::from_secs(30);
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
@@ -26,20 +26,23 @@ fn main() {
     // Periodically sweep store and remove expired entries
     thread::spawn(move || {
         loop {
-            let mut store_handle = sweeper_store.write().unwrap();
-            let mut removable_keys = vec![];
+            thread::sleep(STORE_SWEEP_WAIT);
 
-            for (k, v) in store_handle.iter() {
-                if v.is_expired() {
-                    removable_keys.push(k.clone());
+            // Introduce scope to drop lock after it's finished being used
+            {
+                let mut store_handle = sweeper_store.write().unwrap();
+                let mut removable_keys = vec![];
+
+                for (k, v) in store_handle.iter() {
+                    if v.is_expired() {
+                        removable_keys.push(k.clone());
+                    }
+                }
+
+                for k in removable_keys.iter() {
+                    store_handle.remove(k);
                 }
             }
-
-            for k in removable_keys.iter() {
-                store_handle.remove(k);
-            }
-
-            thread::sleep(STORE_SWEEP_DELAY);
         }
     });
 
