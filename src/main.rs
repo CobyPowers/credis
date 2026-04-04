@@ -72,12 +72,11 @@ fn main() {
                                                         .unwrap()
                                                         .remove(encoded_key)
                                                         .unwrap();
+                                                    panic!();
                                                 }
                                             }
 
-                                            resp_parser
-                                                .encode(&RespKind::BulkString("".to_string()))
-                                                .unwrap();
+                                            resp_parser.encode(&resp_nbstr!()).unwrap();
                                         }
                                     }
                                     "set" => {
