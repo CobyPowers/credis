@@ -161,7 +161,7 @@ fn main() {
 
                                         resp_parser
                                             .encode(&resp_arr!(
-                                                arr.get(start_index..end_index)
+                                                arr.get(start_index..=end_index)
                                                     .map(|x| x.to_vec())
                                                     .unwrap_or_default()
                                             ))
