@@ -72,7 +72,7 @@ fn main() {
                                     RespKind::BulkString(val) => val.to_lowercase(),
                                     _ => continue,
                                 };
-                                let args = data;
+                                let mut args = data;
 
                                 match cmd.as_str() {
                                     "ping" => {
@@ -121,21 +121,19 @@ fn main() {
                                         }
                                     }
                                     "rpush" => {
-                                        let list_name = match args.get(0) {
-                                            Some(RespKind::BulkString(val)) => val.clone(),
-                                            _ => continue,
-                                        };
-
-                                        let list_val = match args.get(1) {
-                                            Some(val) => val,
+                                        let list_name = match args.remove(0) {
+                                            RespKind::BulkString(val) => val.clone(),
                                             _ => continue,
                                         };
 
                                         let mut arr_store_handle = arr_store.write().unwrap();
                                         let entry = arr_store_handle
                                             .entry(list_name)
-                                            .and_modify(|entry| entry.push(list_val.clone()))
-                                            .or_insert(vec![list_val.clone()]);
+                                            .and_modify(|arr| {
+                                                args.iter()
+                                                    .for_each(|entry| arr.push(entry.clone()))
+                                            })
+                                            .or_insert(args.clone());
 
                                         resp_parser.encode(&resp_int!(entry.len() as i64)).unwrap();
                                     }
