@@ -50,23 +50,23 @@ impl RespKind {
             // TODO: Find a better way to consolidate encode matches
             Self::Array(arr) => {
                 let vals: Vec<String> = arr.iter().map(|x| x.encode()).collect();
-                format!("*{}\r\n{}\r\n", arr.len(), vals.join(""))
+                format!("*{}\r\n{}", arr.len(), vals.join(""))
             }
             Self::Push(arr) => {
                 let vals: Vec<String> = arr.iter().map(|x| x.encode()).collect();
-                format!(">{}\r\n{}\r\n", arr.len(), vals.join(""))
+                format!(">{}\r\n{}", arr.len(), vals.join(""))
             }
             Self::Set(arr) => {
                 let vals: Vec<String> = arr.iter().map(|x| x.encode()).collect();
-                format!("~{}\r\n{}\r\n", arr.len(), vals.join(""))
+                format!("~{}\r\n{}", arr.len(), vals.join(""))
             }
             Self::Map(map) => {
                 let vals: Vec<String> = map.iter().map(|(k, v)| k.clone() + &v.encode()).collect();
-                format!("*{}\r\n{}\r\n", vals.len(), vals.join(""))
+                format!("*{}\r\n{}", vals.len(), vals.join(""))
             }
             Self::Attributes(map) => {
                 let vals: Vec<String> = map.iter().map(|(k, v)| k.clone() + &v.encode()).collect();
-                format!("|{}\r\n{}\r\n", vals.len(), vals.join(""))
+                format!("|{}\r\n{}", vals.len(), vals.join(""))
             }
             Self::Null => "_\r\n".to_string(),
         }
@@ -357,7 +357,7 @@ macro_rules! resp_berr {
 
 macro_rules! resp_arr {
     ($v:expr) => {
-        RespKind::Array($v)
+        RespKind::Array($vec)
     };
 }
 
