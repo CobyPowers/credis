@@ -71,6 +71,7 @@ fn main() {
                                                         .unwrap()
                                                         .remove(encoded_key)
                                                         .unwrap();
+                                                    println!("{:?}", &resp_nbstr!());
                                                     resp_parser.encode(&resp_nbstr!()).unwrap();
                                                 }
                                             }
