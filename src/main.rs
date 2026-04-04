@@ -20,27 +20,29 @@ fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
     println!("Listening on 127.0.0.1:6379");
 
-    let store = Arc::new(RwLock::new(HashMap::<String, StoreEntry>::new()));
-    let sweeper_store = Arc::clone(&store);
+    let kv_store = Arc::new(RwLock::new(HashMap::<String, StoreEntry>::new()));
+    let arr_store = Arc::new(RwLock::new(HashMap::<String, Vec<RespKind>>::new()));
+
+    let sweeper_kv_store = Arc::clone(&kv_store);
 
     // Periodically sweep store and remove expired entries
     thread::spawn(move || {
         loop {
             thread::sleep(STORE_SWEEP_WAIT);
 
-            // Introduce scope to drop lock after it's finished being used
+            // Introduce scope to drop write lock after the sweep is finished
             {
-                let mut store_handle = sweeper_store.write().unwrap();
+                let mut kv_store_handle = sweeper_kv_store.write().unwrap();
                 let mut removable_keys = vec![];
 
-                for (k, v) in store_handle.iter() {
+                for (k, v) in kv_store_handle.iter() {
                     if v.is_expired() {
                         removable_keys.push(k.clone());
                     }
                 }
 
                 for k in removable_keys.iter() {
-                    store_handle.remove(k);
+                    kv_store_handle.remove(k);
                 }
             }
         }
@@ -49,7 +51,8 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let store = Arc::clone(&store);
+                let kv_store = Arc::clone(&kv_store);
+                let arr_store = Arc::clone(&arr_store);
 
                 thread::spawn(move || {
                     let mut resp_parser =
@@ -85,7 +88,7 @@ fn main() {
                                             let encoded_key = &key.encode();
 
                                             if let Some(entry) =
-                                                store.read().unwrap().get(encoded_key)
+                                                kv_store.read().unwrap().get(encoded_key)
                                                 && !entry.is_expired()
                                             {
                                                 resp_parser.encode(entry.value()).unwrap();
@@ -110,12 +113,31 @@ fn main() {
                                                 _ => {}
                                             }
 
-                                            store.write().unwrap().insert(
+                                            kv_store.write().unwrap().insert(
                                                 key.encode(),
                                                 StoreEntry::new(val.clone(), expiry),
                                             );
                                             resp_parser.encode(&resp_sstr!("OK")).unwrap();
                                         }
+                                    }
+                                    "rpush" => {
+                                        let list_name = match args.get(0) {
+                                            Some(RespKind::BulkString(val)) => val.clone(),
+                                            _ => continue,
+                                        };
+
+                                        let list_val = match args.get(1) {
+                                            Some(val) => val,
+                                            _ => continue,
+                                        };
+
+                                        let mut arr_store_handle = arr_store.write().unwrap();
+                                        let entry = arr_store_handle
+                                            .entry(list_name)
+                                            .and_modify(|entry| entry.push(list_val.clone()))
+                                            .or_insert(vec![list_val.clone()]);
+
+                                        resp_parser.encode(&resp_int!(entry.len() as i64)).unwrap();
                                     }
                                     _ => {
                                         resp_parser

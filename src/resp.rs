@@ -337,6 +337,12 @@ macro_rules! resp_nbstr {
     };
 }
 
+macro_rules! resp_int {
+    ($i:expr) => {
+        RespKind::Integer($i)
+    };
+}
+
 macro_rules! resp_serr {
     ($s:expr) => {
         RespKind::SimpleError(($s).to_string())
