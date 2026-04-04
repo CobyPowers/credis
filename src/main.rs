@@ -75,7 +75,9 @@ fn main() {
                                                 }
                                             }
 
-                                            resp_parser.encode(&resp_nbstr!()).unwrap();
+                                            resp_parser
+                                                .encode(&RespKind::BulkString("".to_string()))
+                                                .unwrap();
                                         }
                                     }
                                     "set" => {
