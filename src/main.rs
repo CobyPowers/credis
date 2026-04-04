@@ -120,6 +120,23 @@ fn main() {
                                             resp_parser.encode(&resp_sstr!("OK")).unwrap();
                                         }
                                     }
+                                    "lpush" => {
+                                        let list_name = match args.remove(0) {
+                                            RespKind::BulkString(val) => val.clone(),
+                                            _ => continue,
+                                        };
+
+                                        let mut arr_store_handle = arr_store.write().unwrap();
+                                        let arr = arr_store_handle
+                                            .entry(list_name)
+                                            .and_modify(|arr| {
+                                                args.iter()
+                                                    .for_each(|entry| arr.insert(0, entry.clone()))
+                                            })
+                                            .or_insert(args.into_iter().rev().collect());
+
+                                        resp_parser.encode(&resp_int!(arr.len() as i64)).unwrap();
+                                    }
                                     "rpush" => {
                                         let list_name = match args.remove(0) {
                                             RespKind::BulkString(val) => val.clone(),
