@@ -143,12 +143,12 @@ fn main() {
                                             _ => continue,
                                         };
 
-                                        let start_index: usize = match args.get(1) {
+                                        let mut start_index: i64 = match args.get(1) {
                                             Some(RespKind::BulkString(val)) => val.parse().unwrap(),
                                             _ => continue,
                                         };
 
-                                        let end_index: usize = match args.get(2) {
+                                        let mut end_index: i64 = match args.get(2) {
                                             Some(RespKind::BulkString(val)) => val.parse().unwrap(),
                                             _ => continue,
                                         };
@@ -158,6 +158,17 @@ fn main() {
                                             .get(list_name)
                                             .cloned()
                                             .unwrap_or_default();
+
+                                        if start_index < 0 {
+                                            start_index += arr.len() as i64;
+                                        }
+
+                                        if end_index < 0 {
+                                            end_index += arr.len() as i64;
+                                        }
+
+                                        let start_index = start_index as usize;
+                                        let end_index = start_index as usize;
 
                                         resp_parser
                                             .encode(&resp_arr!(
