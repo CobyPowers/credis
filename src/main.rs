@@ -64,7 +64,6 @@ fn main() {
                                                 if !entry.is_expired() {
                                                     // Entry exists and is valid
                                                     resp_parser.encode(entry.value()).unwrap();
-                                                    panic!();
                                                     continue;
                                                 } else {
                                                     // Entry exists but is expired
@@ -72,6 +71,9 @@ fn main() {
                                                         .write()
                                                         .unwrap()
                                                         .remove(encoded_key)
+                                                        .unwrap();
+                                                    resp_parser
+                                                        .encode(&resp_sstr!("REMOVED"))
                                                         .unwrap();
                                                 }
                                             }
