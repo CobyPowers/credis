@@ -171,7 +171,7 @@ fn main() {
                                             && !arr.is_empty()
                                         {
                                             let removed: Vec<_> =
-                                                args.drain(..pop_count.min(arr.len())).collect();
+                                                arr.drain(..pop_count.min(arr.len())).collect();
                                             resp_parser.encode(&resp_arr!(removed)).unwrap();
                                         } else {
                                             resp_parser.encode(&resp_nbstr!()).unwrap();
