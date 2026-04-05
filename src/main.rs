@@ -175,11 +175,7 @@ fn main() {
                                             if removed.len() > 1 {
                                                 resp_parser.encode(&resp_arr!(removed)).unwrap();
                                             } else {
-                                                resp_parser
-                                                    .encode(&resp_bstr!(
-                                                        removed.get(0).expect("Unreachable")
-                                                    ))
-                                                    .unwrap();
+                                                resp_parser.encode(&removed[0]).unwrap();
                                             }
                                         } else {
                                             resp_parser.encode(&resp_nbstr!()).unwrap();
