@@ -154,13 +154,13 @@ fn main() {
                                         resp_parser.encode(&resp_int!(arr.len() as i64)).unwrap();
                                     }
                                     "lpop" => {
-                                        let list_name = match args.remove(0) {
-                                            RespKind::BulkString(val) => val,
+                                        let list_name = match args.get(0) {
+                                            Some(RespKind::BulkString(val)) => val.clone(),
                                             _ => continue,
                                         };
 
-                                        let pop_count = match args.remove(0) {
-                                            RespKind::BulkString(val) => {
+                                        let pop_count = match args.get(1) {
+                                            Some(RespKind::BulkString(val)) => {
                                                 val.parse::<usize>().unwrap()
                                             }
                                             _ => 1,
