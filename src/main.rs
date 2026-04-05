@@ -159,11 +159,19 @@ fn main() {
                                             _ => continue,
                                         };
 
+                                        let pop_count = match args.remove(0) {
+                                            RespKind::BulkString(val) => {
+                                                val.parse::<usize>().unwrap().clamp(1, args.len())
+                                            }
+                                            _ => 1,
+                                        };
+
                                         let mut arr_store_handle = arr_store.write().unwrap();
                                         if let Some(arr) = arr_store_handle.get_mut(&list_name)
                                             && !arr.is_empty()
                                         {
-                                            resp_parser.encode(&arr.remove(0)).unwrap();
+                                            let removed: Vec<_> = args.drain(..pop_count).collect();
+                                            resp_parser.encode(&resp_arr!(removed)).unwrap();
                                         } else {
                                             resp_parser.encode(&resp_nbstr!()).unwrap();
                                         }
