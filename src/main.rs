@@ -172,7 +172,15 @@ fn main() {
                                         {
                                             let removed: Vec<_> =
                                                 arr.drain(..pop_count.min(arr.len())).collect();
-                                            resp_parser.encode(&resp_arr!(removed)).unwrap();
+                                            if removed.len() > 1 {
+                                                resp_parser.encode(&resp_arr!(removed)).unwrap();
+                                            } else {
+                                                resp_parser
+                                                    .encode(&resp_bstr!(
+                                                        removed.get(0).expect("Unreachable")
+                                                    ))
+                                                    .unwrap();
+                                            }
                                         } else {
                                             resp_parser.encode(&resp_nbstr!()).unwrap();
                                         }
