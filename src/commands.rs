@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fmt::write,
     io::{Read, Write},
     sync::Arc,
     time::Duration,
@@ -12,9 +11,14 @@ use crate::{
     resp::{RespError, RespKind, RespParser, ToRespValue},
     store::StoreEntry,
 };
+
 type CommandArguments = Vec<RespKind>;
 type CommandReturn = Result<(), RespError>;
 
+// We need a middleman structure that allows us to use Condvars
+// with RwLocks since parking_lot doesn't support anything other
+// than MutexGuards. There is probably a better way of doing this,
+// but I'm still learning rust :')
 // https://github.com/Amanieu/parking_lot/issues/165
 #[derive(Default)]
 struct CondvarAny {
@@ -23,14 +27,6 @@ struct CondvarAny {
 }
 
 impl CondvarAny {
-    // fn wait<T>(&self, g: &mut RwLockWriteGuard<'_, T>) {
-    //     let guard = self.mtx.lock();
-    //     RwLockWriteGuard::unlocked(g, || {
-    //         let mut guard = guard;
-    //         self.cv.wait(&mut guard);
-    //     });
-    // }
-
     fn wait_for<T>(&self, g: &mut RwLockWriteGuard<'_, T>, timeout: Duration) -> WaitTimeoutResult {
         let guard = self.mtx.lock();
         RwLockWriteGuard::unlocked(g, || {
@@ -88,35 +84,44 @@ where
         Self { rp, ctx }
     }
 
-    pub fn parse(&mut self) -> Result<(), RespError> {
-        match self.rp.decode() {
-            Ok(RespKind::SimpleString(val)) => match val.to_lowercase().as_str() {
-                "ping" => self.ping(),
-                _ => Ok(()),
-            },
-            Ok(RespKind::Array(mut data)) => {
-                let cmd = match data.remove(0) {
+    fn parse_cmd(&self, data: RespKind) -> Option<(String, Vec<RespKind>)> {
+        match data {
+            RespKind::SimpleString(val) | RespKind::BulkString(val) => Some((val, vec![])),
+            RespKind::Array(mut list) => {
+                let cmd = match list.remove(0) {
                     RespKind::SimpleString(val) => val.to_lowercase(),
                     RespKind::BulkString(val) => val.to_lowercase(),
-                    _ => return Ok(()),
+                    _ => return None,
                 };
-                let args = data;
+                let args = list;
 
-                match cmd.as_str() {
-                    "ping" => self.ping(),
-                    "echo" => self.echo(args),
-                    "type" => self.typec(args),
-                    "get" => self.get(args),
-                    "set" => self.set(args),
-                    "llen" => self.llen(args),
-                    "lpush" => self.lpush(args),
-                    "lpop" => self.lpop(args),
-                    "blpop" => self.blpop(args),
-                    "rpush" => self.rpush(args),
-                    "lrange" => self.lrange(args),
-                    _ => Ok(()),
-                }
+                Some((cmd, args))
             }
+            _ => None,
+        }
+    }
+
+    pub fn parse(&mut self) -> Result<(), RespError> {
+        let data = self.rp.decode()?;
+
+        let (cmd, args) = match self.parse_cmd(data) {
+            Some((cmd, args)) => (cmd, args),
+            None => return Ok(()),
+        };
+
+        match cmd.as_str() {
+            "ping" => self.ping(),
+            "echo" => self.echo(args),
+            "type" => self.typec(args),
+            "get" => self.get(args),
+            "set" => self.set(args),
+            "llen" => self.llen(args),
+            "lpush" => self.lpush(args),
+            "lpop" => self.lpop(args),
+            "blpop" => self.blpop(args),
+            "rpush" => self.rpush(args),
+            "lrange" => self.lrange(args),
+            "xadd" => self.xadd(args),
             _ => Ok(()),
         }
     }
@@ -144,6 +149,7 @@ where
             .and_then(|entry| match entry.value() {
                 RespKind::BulkString(_) => Some("string"),
                 RespKind::Array(_) => Some("list"),
+                RespKind::Map(_) => Some("stream"),
                 _ => Some("none"),
             })
             .unwrap_or("none");
@@ -381,5 +387,57 @@ where
             _ => 0,
         };
         self.rp.encode(&resp_int!(len))
+    }
+
+    fn xadd(&mut self, args: CommandArguments) -> CommandReturn {
+        let stream_key = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+
+        let entry_id = match args.get(1) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+
+        let mut kv_pairs = vec![];
+        let mut args = &args[2..];
+        while !args.is_empty() {
+            let key = match args.get(0) {
+                Some(val) => val,
+                _ => return Ok(()),
+            };
+
+            let value = match args.get(1) {
+                Some(val) => val,
+                _ => return Ok(()),
+            };
+
+            kv_pairs.push((key.encode(), value.clone()));
+            args = &args[2..];
+        }
+
+        let mut store = self.ctx.inner.kv_store.write();
+        let entry = store.entry(stream_key.clone()).or_insert(StoreEntry::new(
+            RespKind::Map(HashMap::new()),
+            Duration::MAX,
+        ));
+        let stream = match entry.value_mut() {
+            RespKind::Map(stream) => stream,
+            _ => return Ok(()),
+        };
+        let stream_entry = match stream
+            .entry(entry_id.clone())
+            .or_insert(RespKind::Map(HashMap::new()))
+        {
+            RespKind::Map(map) => map,
+            _ => return Ok(()),
+        };
+
+        for (k, v) in kv_pairs.drain(..) {
+            stream_entry.insert(k, v);
+        }
+
+        self.rp.encode(&resp_bstr!(entry_id))
     }
 }
