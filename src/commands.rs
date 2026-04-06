@@ -276,6 +276,8 @@ where
                 }
 
                 drop(arr_store_handle);
+                self.ctx.inner.arr_cv.notify_one();
+                println!("POPPING VALUE {:?}", ret_arr);
                 self.rp.encode(&resp_arr!(ret_arr))
             }
             _ => Ok(()),
