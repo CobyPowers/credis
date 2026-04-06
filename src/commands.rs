@@ -246,20 +246,22 @@ where
         match args.get(0) {
             Some(RespKind::BulkString(list_name)) => {
                 let wait_timeout = match args.get(1) {
-                    Some(RespKind::BulkString(val)) if val != "0" => val.parse::<u64>().unwrap(),
-                    _ => u64::MAX,
+                    Some(RespKind::BulkString(val)) => val.parse::<f64>().unwrap(),
+                    _ => 0f64,
                 };
-                let wait_timeout = Duration::from_secs(wait_timeout);
+
+                let wait_timeout = if wait_timeout > 0f64 {
+                    Duration::from_secs_f64(wait_timeout)
+                } else {
+                    Duration::MAX
+                };
 
                 let mut arr_store_handle = self.ctx.inner.arr_store.write();
-                let mut ret_arr = vec![list_name.to_resp_value()];
-
                 loop {
-                    match arr_store_handle.get_mut(list_name) {
-                        Some(arr) if !arr.is_empty() => {
-                            ret_arr.push(arr.remove(0));
-                            break;
-                        }
+                    return match arr_store_handle.get_mut(list_name) {
+                        Some(arr) if !arr.is_empty() => self
+                            .rp
+                            .encode(&resp_arr!(vec![list_name.to_resp_value(), arr.remove(0)])),
                         _ => {
                             let res = self
                                 .ctx
@@ -268,7 +270,6 @@ where
                                 .wait_for(&mut arr_store_handle, wait_timeout);
 
                             if res.timed_out() {
-                                println!("TIMED OUT");
                                 return self.rp.encode(&resp_narr!());
                             }
 
@@ -276,9 +277,6 @@ where
                         }
                     };
                 }
-
-                println!("RETURNING ARRAY {:?}", ret_arr);
-                self.rp.encode(&resp_arr!(ret_arr))
             }
             _ => Ok(()),
         }
