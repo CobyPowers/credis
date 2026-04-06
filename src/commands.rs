@@ -226,12 +226,12 @@ where
         }
     }
 
-    fn lpush(&mut self, args: CommandArguments) -> CommandReturn {
-        match args.get(0) {
-            Some(RespKind::BulkString(list_name)) => {
+    fn lpush(&mut self, mut args: CommandArguments) -> CommandReturn {
+        match args.remove(0) {
+            RespKind::BulkString(list_name) => {
                 let mut arr_store_handle = self.ctx.inner.arr_store.write();
                 let arr = arr_store_handle
-                    .entry(list_name.clone())
+                    .entry(list_name)
                     .and_modify(|arr| args.iter().for_each(|entry| arr.insert(0, entry.clone())))
                     .or_insert(args.into_iter().rev().collect());
 
@@ -311,12 +311,12 @@ where
         }
     }
 
-    fn rpush(&mut self, args: CommandArguments) -> CommandReturn {
-        match args.get(0) {
-            Some(RespKind::BulkString(list_name)) => {
+    fn rpush(&mut self, mut args: CommandArguments) -> CommandReturn {
+        match args.remove(0) {
+            RespKind::BulkString(list_name) => {
                 let mut arr_store_handle = self.ctx.inner.arr_store.write();
                 let arr = arr_store_handle
-                    .entry(list_name.clone())
+                    .entry(list_name)
                     .and_modify(|arr| args.iter().for_each(|entry| arr.push(entry.clone())))
                     .or_insert(args.clone());
 
