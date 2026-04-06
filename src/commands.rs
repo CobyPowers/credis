@@ -252,12 +252,12 @@ where
                 let wait_timeout = Duration::from_secs(wait_timeout);
 
                 let mut arr_store_handle = self.ctx.inner.arr_store.write();
+                let mut ret_arr = vec![];
                 loop {
                     match arr_store_handle.get_mut(list_name) {
                         Some(arr) if !arr.is_empty() => {
-                            let arr = vec![arr.remove(0)];
-                            self.ctx.inner.arr_cv.notify_one();
-                            self.rp.encode(&resp_arr!(arr))
+                            ret_arr.push(arr.remove(0));
+                            break;
                         }
                         _ => {
                             let res = self
@@ -274,6 +274,10 @@ where
                         }
                     };
                 }
+
+                drop(arr_store_handle);
+                self.ctx.inner.arr_cv.notify_one();
+                self.rp.encode(&resp_arr!(ret_arr))
             }
             _ => Ok(()),
         }
