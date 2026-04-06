@@ -22,6 +22,8 @@ pub enum RespKind {
     Set(Vec<RespKind>),
     Map(HashMap<String, RespKind>),
     Attributes(HashMap<String, RespKind>),
+    NullBulkString,
+    NullArray,
     Null,
 }
 
@@ -29,13 +31,7 @@ impl RespKind {
     pub fn encode(&self) -> String {
         match self {
             Self::SimpleString(val) => format!("+{}\r\n", val),
-            Self::BulkString(val) => {
-                if val.is_empty() {
-                    "$-1\r\n".to_string()
-                } else {
-                    format!("${}\r\n{}\r\n", val.len(), val)
-                }
-            }
+            Self::BulkString(val) => format!("${}\r\n{}\r\n", val.len(), val),
             Self::VerbatimString(encoding, val) => format!(
                 "={}\r\n{}:{}\r\n",
                 encoding.len() + val.len() + 1,
@@ -69,6 +65,8 @@ impl RespKind {
                 format!("|{}\r\n{}", vals.len(), vals.join(""))
             }
             Self::Null => "_\r\n".to_string(),
+            Self::NullBulkString => "$-1\r\n".to_string(),
+            Self::NullArray => "*-1\r\n".to_string(),
         }
     }
 }
@@ -333,7 +331,7 @@ macro_rules! resp_bstr {
 
 macro_rules! resp_nbstr {
     () => {
-        RespKind::BulkString("".to_string())
+        RespKind::NullBulkString
     };
 }
 
@@ -358,6 +356,12 @@ macro_rules! resp_berr {
 macro_rules! resp_arr {
     ($v:expr) => {
         RespKind::Array($v)
+    };
+}
+
+macro_rules! resp_narr {
+    () => {
+        RespKind::NullArray
     };
 }
 
