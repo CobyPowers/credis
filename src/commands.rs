@@ -150,7 +150,7 @@ where
                 RespKind::BulkString(_) => Some("string"),
                 RespKind::Array(_) => Some("list"),
                 RespKind::Map(_) => Some("stream"),
-                _ => Some("none"),
+                _ => Some("unknown"),
             })
             .unwrap_or("none");
 
