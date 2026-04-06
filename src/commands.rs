@@ -235,7 +235,7 @@ where
                     .and_modify(|arr| args.iter().for_each(|entry| arr.insert(0, entry.clone())))
                     .or_insert(args.into_iter().rev().collect());
 
-                self.ctx.inner.arr_cv.notify_all();
+                self.ctx.inner.arr_cv.notify_one();
                 self.rp.encode(&resp_int!(arr.len() as i64))
             }
             _ => Ok(()),
@@ -255,7 +255,9 @@ where
                 loop {
                     match arr_store_handle.get_mut(list_name) {
                         Some(arr) if !arr.is_empty() => {
-                            self.rp.encode(&resp_arr!(vec![arr.remove(0)]))
+                            let arr = vec![arr.remove(0)];
+                            self.ctx.inner.arr_cv.notify_one();
+                            self.rp.encode(&resp_arr!(arr))
                         }
                         _ => {
                             let res = self
@@ -312,7 +314,7 @@ where
                     .and_modify(|arr| args.iter().for_each(|entry| arr.push(entry.clone())))
                     .or_insert(args.clone());
 
-                self.ctx.inner.arr_cv.notify_all();
+                self.ctx.inner.arr_cv.notify_one();
                 self.rp.encode(&resp_int!(arr.len() as i64))
             }
             _ => Ok(()),
