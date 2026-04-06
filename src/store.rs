@@ -5,7 +5,7 @@ use crate::resp::RespKind;
 pub struct StoreEntry {
     value: RespKind,
     insertion_time: SystemTime,
-    expiry: Option<Duration>,
+    expiry_dur: Option<Duration>,
 }
 
 impl StoreEntry {
@@ -13,12 +13,16 @@ impl StoreEntry {
         Self {
             value,
             insertion_time: SystemTime::now(),
-            expiry: if expiry == Duration::MAX {
+            expiry_dur: if expiry == Duration::MAX {
                 None
             } else {
                 Some(expiry)
             },
         }
+    }
+
+    pub fn set_value(&mut self, value: RespKind) {
+        self.value = value;
     }
 
     pub fn value(&self) -> &RespKind {
@@ -30,12 +34,12 @@ impl StoreEntry {
     }
 
     pub fn is_expired(&self) -> bool {
-        match self.expiry {
+        match self.expiry_dur {
             Some(duration) => {
                 SystemTime::now()
                     .duration_since(self.insertion_time)
                     .unwrap_or(Duration::MAX)
-                    > duration
+                    >= duration
             }
             None => false,
         }

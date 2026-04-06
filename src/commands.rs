@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::write,
     io::{Read, Write},
     sync::Arc,
     time::Duration,
@@ -11,7 +12,6 @@ use crate::{
     resp::{RespError, RespKind, RespParser, ToRespValue},
     store::StoreEntry,
 };
-
 type CommandArguments = Vec<RespKind>;
 type CommandReturn = Result<(), RespError>;
 
@@ -53,8 +53,7 @@ impl CondvarAny {
 #[derive(Default)]
 pub struct CommandContextInner {
     pub kv_store: RwLock<HashMap<String, StoreEntry>>,
-    pub arr_store: RwLock<HashMap<String, Vec<RespKind>>>,
-    pub arr_cv: CondvarAny,
+    pub list_cv: CondvarAny,
 }
 
 #[derive(Default)]
@@ -106,6 +105,7 @@ where
                 match cmd.as_str() {
                     "ping" => self.ping(),
                     "echo" => self.echo(args),
+                    "type" => self.typec(args),
                     "get" => self.get(args),
                     "set" => self.set(args),
                     "llen" => self.llen(args),
@@ -132,195 +132,254 @@ where
         }
     }
 
-    fn get(&mut self, args: CommandArguments) -> CommandReturn {
-        match args.get(0) {
-            Some(key) => {
-                let encoded_key = &key.encode();
+    fn typec(&mut self, args: CommandArguments) -> CommandReturn {
+        let key = match args.get(0) {
+            Some(key) => key,
+            None => return Ok(()),
+        };
 
-                if let Some(entry) = self.ctx.inner.kv_store.read().get(encoded_key)
-                    && !entry.is_expired()
-                {
-                    self.rp.encode(entry.value())
-                } else {
-                    self.rp.encode(&resp_nbstr!())
-                }
-            }
-            None => Ok(()),
+        let store = self.ctx.inner.kv_store.read();
+        let value_type = store
+            .get(&key.encode())
+            .and_then(|entry| match entry.value() {
+                RespKind::BulkString(_) => Some("string"),
+                RespKind::Array(_) => Some("list"),
+                _ => Some("none"),
+            })
+            .unwrap_or("none");
+
+        self.rp.encode(&resp_sstr!(value_type))
+    }
+
+    fn get(&mut self, args: CommandArguments) -> CommandReturn {
+        let key = match args.get(0) {
+            Some(key) => key,
+            None => return Ok(()),
+        };
+        let key = &key.encode();
+
+        let store = self.ctx.inner.kv_store.read();
+        match store.get(key) {
+            Some(entry) if !entry.is_expired() => self.rp.encode(entry.value()),
+            _ => self.rp.encode(&resp_nbstr!()),
         }
     }
 
     fn set(&mut self, args: CommandArguments) -> CommandReturn {
-        if let (Some(key), Some(val)) = (args.get(0), args.get(1)) {
-            let mut expiry = Duration::MAX;
+        let (key, value) = match (args.get(0), args.get(1)) {
+            (Some(key), Some(value)) => (key, value),
+            _ => return Ok(()),
+        };
 
-            if let (Some(RespKind::BulkString(arg1)), Some(RespKind::BulkString(arg2))) =
-                (args.get(2), args.get(3))
-            {
-                if arg1 == "PX" {
-                    if let Ok(ms) = arg2.parse::<u64>() {
-                        expiry = Duration::from_millis(ms);
-                    }
-                } else if arg1 == "EX" {
-                    if let Ok(ss) = arg2.parse::<u64>() {
-                        expiry = Duration::from_secs(ss);
-                    }
+        let mut expiry = Duration::MAX;
+
+        if let (Some(RespKind::BulkString(arg1)), Some(RespKind::BulkString(arg2))) =
+            (args.get(2), args.get(3))
+        {
+            if arg1 == "PX" {
+                if let Ok(ms) = arg2.parse::<u64>() {
+                    expiry = Duration::from_millis(ms);
+                }
+            } else if arg1 == "EX" {
+                if let Ok(ss) = arg2.parse::<u64>() {
+                    expiry = Duration::from_secs(ss);
                 }
             }
-
-            self.ctx
-                .inner
-                .kv_store
-                .write()
-                .insert(key.encode(), StoreEntry::new(val.clone(), expiry));
-            return self.rp.encode(&resp_sstr!("OK"));
         }
 
-        Ok(())
+        let mut store = self.ctx.inner.kv_store.write();
+        store.insert(key.encode(), StoreEntry::new(value.clone(), expiry));
+        self.rp.encode(&resp_sstr!("OK"))
     }
 
     fn llen(&mut self, args: CommandArguments) -> CommandReturn {
-        match args.get(0) {
-            Some(RespKind::BulkString(val)) => {
-                let arr_store_handle = self.ctx.inner.arr_store.read();
-                let arr_len = arr_store_handle.get(val).map_or(0, |arr| arr.len());
+        let list_name = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
 
-                self.rp.encode(&resp_int!(arr_len as i64))
-            }
-            _ => Ok(()),
-        }
+        let store = self.ctx.inner.kv_store.read();
+        let len = store
+            .get(list_name)
+            .and_then(|entry| match entry.value() {
+                RespKind::Array(arr) => Some(arr.len() as i64),
+                _ => None,
+            })
+            .unwrap_or(0);
+        self.rp.encode(&resp_int!(len))
     }
 
     fn lrange(&mut self, args: CommandArguments) -> CommandReturn {
-        match (args.get(0), args.get(1), args.get(2)) {
+        let (list_name, start_i, end_i) = match (args.get(0), args.get(1), args.get(2)) {
             (
                 Some(RespKind::BulkString(list_name)),
-                Some(RespKind::BulkString(start_index)),
-                Some(RespKind::BulkString(end_index)),
-            ) => {
-                let arr_store_handle = self.ctx.inner.arr_store.read();
-                let arr = arr_store_handle.get(list_name).cloned().unwrap_or_default();
+                Some(RespKind::BulkString(start_i)),
+                Some(RespKind::BulkString(end_i)),
+            ) => (list_name, start_i, end_i),
+            _ => return Ok(()),
+        };
 
-                match (start_index.parse::<i64>(), end_index.parse::<i64>()) {
-                    (Ok(mut start_index), Ok(mut end_index)) => {
-                        if start_index < 0 {
-                            start_index += arr.len() as i64;
-                        }
+        let (mut start_i, mut end_i) = match (start_i.parse::<i64>(), end_i.parse::<i64>()) {
+            (Ok(start_i), Ok(end_i)) => (start_i, end_i),
+            _ => return Ok(()),
+        };
 
-                        if end_index < 0 {
-                            end_index += arr.len() as i64;
-                        }
+        let store = self.ctx.inner.kv_store.read();
+        let list = match store.get(list_name).and_then(|entry| match entry.value() {
+            RespKind::Array(arr) => Some(arr),
+            _ => None,
+        }) {
+            Some(arr) => arr,
+            None => return self.rp.encode(&resp_int!(0)),
+        };
 
-                        let start_index = start_index.max(0) as usize;
-                        let end_index = end_index.max(0) as usize;
-
-                        self.rp.encode(&resp_arr!(
-                            arr.get(start_index..=end_index.min(arr.len() - 1))
-                                .map(|x| x.to_vec())
-                                .unwrap_or_default()
-                        ))
-                    }
-                    _ => Ok(()),
-                }
-            }
-            _ => Ok(()),
+        let len = list.len() as i64;
+        if start_i < 0 {
+            start_i += len;
         }
+        if end_i < 0 {
+            end_i += len;
+        }
+
+        let start_i = start_i.max(0) as usize;
+        let end_i = end_i.max(0) as usize;
+
+        let new_list = list
+            .get(start_i..=end_i.min(list.len() - 1))
+            .map(|x| x.to_vec())
+            .unwrap_or_default();
+        self.rp.encode(&resp_arr!(new_list))
     }
 
     fn lpush(&mut self, mut args: CommandArguments) -> CommandReturn {
-        match args.remove(0) {
-            RespKind::BulkString(list_name) => {
-                let mut arr_store_handle = self.ctx.inner.arr_store.write();
-                let arr = arr_store_handle
-                    .entry(list_name)
-                    .and_modify(|arr| args.iter().for_each(|entry| arr.insert(0, entry.clone())))
-                    .or_insert(args.into_iter().rev().collect());
+        let list_name = match args.remove(0) {
+            RespKind::BulkString(val) => val,
+            _ => return Ok(()),
+        };
 
-                self.ctx.inner.arr_cv.notify_one();
-                self.rp.encode(&resp_int!(arr.len() as i64))
-            }
-            _ => Ok(()),
-        }
+        let mut store = self.ctx.inner.kv_store.write();
+        let entry = store
+            .entry(list_name)
+            .and_modify(|entry| match entry.value_mut() {
+                RespKind::Array(list) => {
+                    args.iter().for_each(|arg| list.insert(0, arg.clone()));
+                }
+                _ => {
+                    entry.set_value(resp_arr!(args.clone().into_iter().rev().collect()));
+                }
+            })
+            .or_insert_with(|| {
+                StoreEntry::new(
+                    RespKind::Array(args.into_iter().rev().collect()),
+                    Duration::MAX,
+                )
+            });
+
+        self.ctx.inner.list_cv.notify_one();
+
+        let len = match entry.value() {
+            RespKind::Array(list) => list.len() as i64,
+            _ => 0,
+        };
+        self.rp.encode(&resp_int!(len))
     }
 
     fn blpop(&mut self, args: CommandArguments) -> CommandReturn {
-        match args.get(0) {
-            Some(RespKind::BulkString(list_name)) => {
-                let wait_timeout = match args.get(1) {
-                    Some(RespKind::BulkString(val)) => val.parse::<f64>().unwrap(),
-                    _ => 0f64,
-                };
+        let list_name = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
 
-                let wait_timeout = if wait_timeout > 0f64 {
-                    Duration::from_secs_f64(wait_timeout)
-                } else {
-                    Duration::MAX
-                };
+        let wait_timeout = match args.get(1) {
+            Some(RespKind::BulkString(val)) => val.parse::<f64>().unwrap_or(0f64),
+            _ => 0f64,
+        };
 
-                let mut arr_store_handle = self.ctx.inner.arr_store.write();
-                loop {
-                    return match arr_store_handle.get_mut(list_name) {
-                        Some(arr) if !arr.is_empty() => self
-                            .rp
-                            .encode(&resp_arr!(vec![list_name.to_resp_value(), arr.remove(0)])),
-                        _ => {
-                            let res = self
-                                .ctx
-                                .inner
-                                .arr_cv
-                                .wait_for(&mut arr_store_handle, wait_timeout);
+        let wait_timeout = if wait_timeout > 0f64 {
+            Duration::from_secs_f64(wait_timeout)
+        } else {
+            Duration::MAX
+        };
 
-                            if res.timed_out() {
-                                return self.rp.encode(&resp_narr!());
-                            }
+        let mut store = self.ctx.inner.kv_store.write();
+        loop {
+            return match store
+                .get_mut(list_name)
+                .and_then(|entry| match entry.value_mut() {
+                    RespKind::Array(list) => Some(list),
+                    _ => None,
+                }) {
+                Some(list) if !list.is_empty() => self
+                    .rp
+                    .encode(&resp_arr!(vec![list_name.to_resp_value(), list.remove(0)])),
+                _ => {
+                    let res = self.ctx.inner.list_cv.wait_for(&mut store, wait_timeout);
 
-                            continue;
-                        }
-                    };
+                    if res.timed_out() {
+                        return self.rp.encode(&resp_narr!());
+                    }
+
+                    continue;
                 }
-            }
-            _ => Ok(()),
+            };
         }
     }
 
     fn lpop(&mut self, args: CommandArguments) -> CommandReturn {
-        match args.get(0) {
-            Some(RespKind::BulkString(list_name)) => {
-                let pop_count = match args.get(1) {
-                    Some(RespKind::BulkString(val)) => val.parse::<usize>().unwrap(),
-                    _ => 1,
-                };
+        let list_name = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
 
-                let mut arr_store_handle = self.ctx.inner.arr_store.write();
-                if let Some(arr) = arr_store_handle.get_mut(list_name)
-                    && !arr.is_empty()
-                {
-                    let removed: Vec<_> = arr.drain(..pop_count.min(arr.len())).collect();
-                    if removed.len() > 1 {
-                        self.rp.encode(&resp_arr!(removed))
-                    } else {
-                        self.rp.encode(&removed[0])
-                    }
+        let pop_count = match args.get(1) {
+            Some(RespKind::BulkString(val)) => val.parse::<usize>().unwrap_or(1),
+            _ => 1,
+        };
+
+        let mut store = self.ctx.inner.kv_store.write();
+        match store
+            .get_mut(list_name)
+            .and_then(|entry| match entry.value_mut() {
+                RespKind::Array(list) => Some(list),
+                _ => None,
+            }) {
+            Some(list) if !list.is_empty() => {
+                let removed: Vec<_> = list.drain(..pop_count.min(list.len())).collect();
+                if removed.len() > 1 {
+                    self.rp.encode(&resp_arr!(removed))
                 } else {
-                    self.rp.encode(&resp_nbstr!())
+                    self.rp.encode(&removed[0])
                 }
             }
-            _ => Ok(()),
+            _ => self.rp.encode(&resp_nbstr!()),
         }
     }
 
     fn rpush(&mut self, mut args: CommandArguments) -> CommandReturn {
-        match args.remove(0) {
-            RespKind::BulkString(list_name) => {
-                let mut arr_store_handle = self.ctx.inner.arr_store.write();
-                let arr = arr_store_handle
-                    .entry(list_name)
-                    .and_modify(|arr| args.iter().for_each(|entry| arr.push(entry.clone())))
-                    .or_insert(args.clone());
+        let list_name = match args.remove(0) {
+            RespKind::BulkString(val) => val,
+            _ => return Ok(()),
+        };
 
-                self.ctx.inner.arr_cv.notify_one();
-                self.rp.encode(&resp_int!(arr.len() as i64))
-            }
-            _ => Ok(()),
-        }
+        let mut store = self.ctx.inner.kv_store.write();
+        let entry = store
+            .entry(list_name)
+            .and_modify(|entry| match entry.value_mut() {
+                RespKind::Array(list) => {
+                    args.iter().for_each(|arg| list.push(arg.clone()));
+                }
+                _ => {
+                    entry.set_value(resp_arr!(args.clone()));
+                }
+            })
+            .or_insert_with(|| StoreEntry::new(RespKind::Array(args.clone()), Duration::MAX));
+
+        self.ctx.inner.list_cv.notify_one();
+
+        let len = match entry.value() {
+            RespKind::Array(list) => list.len() as i64,
+            _ => 0,
+        };
+        self.rp.encode(&resp_int!(len))
     }
 }
