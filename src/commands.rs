@@ -139,13 +139,13 @@ where
 
     fn typec(&mut self, args: CommandArguments) -> CommandReturn {
         let key = match args.get(0) {
-            Some(val) => val.encode(),
-            None => return Ok(()),
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
         };
 
         let store = self.ctx.inner.kv_store.read();
         let value_type = store
-            .get(&key)
+            .get(key)
             .and_then(|entry| match entry.value() {
                 RespKind::BulkString(_) => Some("string"),
                 RespKind::Array(_) => Some("list"),
@@ -154,20 +154,17 @@ where
             })
             .unwrap_or("none");
 
-        println!("{:?}", store);
-        println!("{:?}", store);
-
         self.rp.encode(&resp_sstr!(value_type))
     }
 
     fn get(&mut self, args: CommandArguments) -> CommandReturn {
         let key = match args.get(0) {
-            Some(val) => val.encode(),
-            None => return Ok(()),
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
         };
 
         let store = self.ctx.inner.kv_store.read();
-        match store.get(&key) {
+        match store.get(key) {
             Some(entry) if !entry.is_expired() => self.rp.encode(entry.value()),
             _ => self.rp.encode(&resp_nbstr!()),
         }
@@ -175,7 +172,7 @@ where
 
     fn set(&mut self, args: CommandArguments) -> CommandReturn {
         let (key, value) = match (args.get(0), args.get(1)) {
-            (Some(key), Some(value)) => (key.encode(), value),
+            (Some(RespKind::BulkString(key)), Some(RespKind::BulkString(val))) => (key, val),
             _ => return Ok(()),
         };
 
@@ -196,19 +193,22 @@ where
         }
 
         let mut store = self.ctx.inner.kv_store.write();
-        store.insert(key, StoreEntry::new(value.clone(), expiry));
+        store.insert(
+            key.clone(),
+            StoreEntry::new(RespKind::BulkString(value.clone()), expiry),
+        );
         self.rp.encode(&resp_sstr!("OK"))
     }
 
     fn llen(&mut self, args: CommandArguments) -> CommandReturn {
         let list_name = match args.get(0) {
-            Some(val) => val.encode(),
-            None => return Ok(()),
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
         };
 
         let store = self.ctx.inner.kv_store.read();
         let len = store
-            .get(&list_name)
+            .get(list_name)
             .and_then(|entry| match entry.value() {
                 RespKind::Array(list) => Some(list.len() as i64),
                 _ => None,
@@ -220,10 +220,10 @@ where
     fn lrange(&mut self, args: CommandArguments) -> CommandReturn {
         let (list_name, start_i, end_i) = match (args.get(0), args.get(1), args.get(2)) {
             (
-                Some(list_name),
+                Some(RespKind::BulkString(list_name)),
                 Some(RespKind::BulkString(start_i)),
                 Some(RespKind::BulkString(end_i)),
-            ) => (list_name.encode(), start_i, end_i),
+            ) => (list_name, start_i, end_i),
             _ => return Ok(()),
         };
 
@@ -233,7 +233,7 @@ where
         };
 
         let store = self.ctx.inner.kv_store.read();
-        let list = match store.get(&list_name).and_then(|entry| match entry.value() {
+        let list = match store.get(list_name).and_then(|entry| match entry.value() {
             RespKind::Array(list) => Some(list),
             _ => None,
         }) {
@@ -259,12 +259,16 @@ where
         self.rp.encode(&resp_arr!(new_list))
     }
 
-    fn lpush(&mut self, mut args: CommandArguments) -> CommandReturn {
-        let list_name = args.remove(0).encode();
+    fn lpush(&mut self, args: CommandArguments) -> CommandReturn {
+        let list_name = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+        let args = args[1..].to_vec();
 
         let mut store = self.ctx.inner.kv_store.write();
         let entry = store
-            .entry(list_name)
+            .entry(list_name.clone())
             .and_modify(|entry| match entry.value_mut() {
                 RespKind::Array(list) => {
                     args.iter().for_each(|arg| list.insert(0, arg.clone()));
@@ -291,8 +295,8 @@ where
 
     fn blpop(&mut self, args: CommandArguments) -> CommandReturn {
         let list_name = match args.get(0) {
-            Some(val) => val.encode(),
-            None => return Ok(()),
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
         };
 
         let wait_timeout = match args.get(1) {
@@ -309,7 +313,7 @@ where
         let mut store = self.ctx.inner.kv_store.write();
         loop {
             return match store
-                .get_mut(&list_name)
+                .get_mut(list_name)
                 .and_then(|entry| match entry.value_mut() {
                     RespKind::Array(list) => Some(list),
                     _ => None,
@@ -332,8 +336,8 @@ where
 
     fn lpop(&mut self, args: CommandArguments) -> CommandReturn {
         let list_name = match args.get(0) {
-            Some(val) => val.encode(),
-            None => return Ok(()),
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
         };
 
         let pop_count = match args.get(1) {
@@ -343,7 +347,7 @@ where
 
         let mut store = self.ctx.inner.kv_store.write();
         match store
-            .get_mut(&list_name)
+            .get_mut(list_name)
             .and_then(|entry| match entry.value_mut() {
                 RespKind::Array(list) => Some(list),
                 _ => None,
@@ -360,12 +364,16 @@ where
         }
     }
 
-    fn rpush(&mut self, mut args: CommandArguments) -> CommandReturn {
-        let list_name = args.remove(0).encode();
+    fn rpush(&mut self, args: CommandArguments) -> CommandReturn {
+        let list_name = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+        let args = args[1..].to_vec();
 
         let mut store = self.ctx.inner.kv_store.write();
         let entry = store
-            .entry(list_name)
+            .entry(list_name.clone())
             .and_modify(|entry| match entry.value_mut() {
                 RespKind::Array(list) => {
                     args.iter().for_each(|arg| list.push(arg.clone()));
@@ -387,13 +395,13 @@ where
 
     fn xadd(&mut self, args: CommandArguments) -> CommandReturn {
         let stream_key = match args.get(0) {
-            Some(val) => val,
-            None => return Ok(()),
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
         };
 
         let entry_id = match args.get(1) {
-            Some(val) => val,
-            None => return Ok(()),
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
         };
 
         let mut kv_pairs = vec![];
@@ -414,7 +422,7 @@ where
         }
 
         let mut store = self.ctx.inner.kv_store.write();
-        let entry = store.entry(stream_key.encode()).or_insert(StoreEntry::new(
+        let entry = store.entry(stream_key.clone()).or_insert(StoreEntry::new(
             RespKind::Map(HashMap::new()),
             Duration::MAX,
         ));
@@ -423,7 +431,7 @@ where
             _ => return Ok(()),
         };
         let stream_entry = match stream
-            .entry(entry_id.encode())
+            .entry(entry_id.clone())
             .or_insert(RespKind::Map(HashMap::new()))
         {
             RespKind::Map(map) => map,
@@ -434,6 +442,6 @@ where
             stream_entry.insert(k, v);
         }
 
-        self.rp.encode(entry_id)
+        self.rp.encode(&resp_bstr!(entry_id))
     }
 }
