@@ -268,6 +268,7 @@ where
                                 .wait_for(&mut arr_store_handle, wait_timeout);
 
                             if res.timed_out() {
+                                println!("TIMED OUT");
                                 return self.rp.encode(&resp_narr!());
                             }
 
@@ -277,7 +278,7 @@ where
                 }
 
                 self.ctx.inner.arr_cv.notify_one();
-                println!("POPPING VALUE {:?}", ret_arr);
+                println!("RETURNING ARRAY {:?}", ret_arr);
                 self.rp.encode(&resp_arr!(ret_arr))
             }
             _ => Ok(()),
