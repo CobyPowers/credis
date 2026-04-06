@@ -8,7 +8,7 @@ use std::{
 use parking_lot::{Condvar, Mutex, RwLock, RwLockWriteGuard, WaitTimeoutResult};
 
 use crate::{
-    resp::{RespError, RespKind, RespParser},
+    resp::{RespError, RespKind, RespParser, ToRespValue},
     store::StoreEntry,
 };
 
@@ -252,7 +252,8 @@ where
                 let wait_timeout = Duration::from_secs(wait_timeout);
 
                 let mut arr_store_handle = self.ctx.inner.arr_store.write();
-                let mut ret_arr = vec![];
+                let mut ret_arr = vec![args.get(0).expect("Unreachable").clone()];
+
                 loop {
                     match arr_store_handle.get_mut(list_name) {
                         Some(arr) if !arr.is_empty() => {
@@ -267,17 +268,15 @@ where
                                 .wait_for(&mut arr_store_handle, wait_timeout);
 
                             if res.timed_out() {
-                                self.rp.encode(&resp_narr!())
-                            } else {
-                                continue;
+                                return self.rp.encode(&resp_narr!());
                             }
+
+                            continue;
                         }
                     };
                 }
 
-                drop(arr_store_handle);
                 self.ctx.inner.arr_cv.notify_one();
-                println!("POPPING VALUE {:?}", ret_arr);
                 self.rp.encode(&resp_arr!(ret_arr))
             }
             _ => Ok(()),
