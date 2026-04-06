@@ -2,6 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::resp::RespKind;
 
+#[derive(Debug)]
 pub struct StoreEntry {
     value: RespKind,
     insertion_time: SystemTime,

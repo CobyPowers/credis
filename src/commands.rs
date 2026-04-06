@@ -154,6 +154,8 @@ where
             })
             .unwrap_or("none");
 
+        println!("{:?}", store);
+
         self.rp.encode(&resp_sstr!(value_type))
     }
 
