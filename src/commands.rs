@@ -202,7 +202,7 @@ where
         let len = store
             .get(list_name)
             .and_then(|entry| match entry.value() {
-                RespKind::Array(arr) => Some(arr.len() as i64),
+                RespKind::Array(list) => Some(list.len() as i64),
                 _ => None,
             })
             .unwrap_or(0);
@@ -226,11 +226,11 @@ where
 
         let store = self.ctx.inner.kv_store.read();
         let list = match store.get(list_name).and_then(|entry| match entry.value() {
-            RespKind::Array(arr) => Some(arr),
+            RespKind::Array(list) => Some(list),
             _ => None,
         }) {
-            Some(arr) => arr,
-            None => return self.rp.encode(&resp_int!(0)),
+            Some(list) => list,
+            None => return self.rp.encode(&resp_arr!(vec![])),
         };
 
         let len = list.len() as i64;
