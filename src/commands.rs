@@ -434,6 +434,6 @@ where
             stream_entry.insert(k, v);
         }
 
-        self.rp.encode(&resp_bstr!(entry_id))
+        self.rp.encode(entry_id)
     }
 }
