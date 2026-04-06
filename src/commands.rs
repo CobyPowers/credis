@@ -277,7 +277,6 @@ where
                     };
                 }
 
-                self.ctx.inner.arr_cv.notify_one();
                 println!("RETURNING ARRAY {:?}", ret_arr);
                 self.rp.encode(&resp_arr!(ret_arr))
             }
