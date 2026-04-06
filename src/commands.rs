@@ -252,7 +252,7 @@ where
                 let wait_timeout = Duration::from_secs(wait_timeout);
 
                 let mut arr_store_handle = self.ctx.inner.arr_store.write();
-                let mut ret_arr = vec![args.get(0).expect("Unreachable").clone()];
+                let mut ret_arr = vec![list_name.to_resp_value()];
 
                 loop {
                     match arr_store_handle.get_mut(list_name) {
@@ -277,6 +277,7 @@ where
                 }
 
                 self.ctx.inner.arr_cv.notify_one();
+                println!("POPPING VALUE {:?}", ret_arr);
                 self.rp.encode(&resp_arr!(ret_arr))
             }
             _ => Ok(()),
