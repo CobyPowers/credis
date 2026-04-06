@@ -246,7 +246,7 @@ where
         match args.get(0) {
             Some(RespKind::BulkString(list_name)) => {
                 let wait_timeout = match args.get(1) {
-                    Some(RespKind::BulkString(val)) => val.parse::<u64>().unwrap(),
+                    Some(RespKind::BulkString(val)) if val != "0" => val.parse::<u64>().unwrap(),
                     _ => u64::MAX,
                 };
                 let wait_timeout = Duration::from_secs(wait_timeout);
