@@ -426,10 +426,14 @@ where
             _ => return Ok(()),
         };
 
-        let end_id = match args.get(2) {
+        let mut end_id = match args.get(2) {
             Some(RespKind::BulkString(val)) => val.as_str(),
             _ => return Ok(()),
         };
+
+        if end_id == "+" {
+            end_id = "=";
+        }
 
         let store = self.ctx.inner.store.read();
         let stream = match store.get_stream(key) {
