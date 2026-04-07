@@ -48,15 +48,15 @@ fn parse_stream_id(id: &str, index: u64) -> Result<StreamId, StreamIdError> {
 
 fn validate_stream_id(id: &str, last_id: &str) -> Result<StreamId, StreamIdError> {
     let StreamId(last_time_ms, last_index) = parse_stream_id(last_id, 0)?;
-    let StreamId(time_ms, mut index) = parse_stream_id(id, last_index + 1)?;
+    let StreamId(time_ms, mut index) = parse_stream_id(id, 0)?;
 
     if time_ms == 0 && index == 0 {
         return Err(StreamIdError::EqualZeroError);
     }
 
     if !(last_time_ms == 0 && last_index == 0) {
-        if time_ms != last_time_ms && index == last_index + 1 {
-            index = 0;
+        if time_ms == last_time_ms && index == 0 {
+            index = last_index + 0;
         }
 
         if time_ms < last_time_ms {
