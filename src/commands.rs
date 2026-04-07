@@ -373,7 +373,7 @@ where
         let mut kv_pairs = vec![];
         while !args.is_empty() {
             let key = match args.get(0) {
-                Some(val) => val,
+                Some(RespKind::BulkString(key)) => key,
                 _ => return Ok(()),
             };
 
@@ -382,7 +382,7 @@ where
                 _ => return Ok(()),
             };
 
-            kv_pairs.push((key.encode(), value.clone()));
+            kv_pairs.push((key.clone(), value.clone()));
             args = &args[2..];
         }
 
@@ -437,13 +437,8 @@ where
             None => return self.rp.encode(&resp_narr!()),
         };
 
-        println!("Stream @ {}: {:?}", key, stream);
-        println!("Search Range start:{:?} end:{:?}", start_id, end_id);
-
         let mut entries: Vec<_> = vec![];
         for (k, v) in stream.range::<str, _>((Included(start_id), Included(end_id))) {
-            println!("Search Range Result k:{:?} v:{:?}", k, v);
-
             match v {
                 StoreEntryKind::HashMap(map) => {
                     let mut entry_entries = vec![];
