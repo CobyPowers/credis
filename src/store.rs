@@ -35,10 +35,10 @@ impl StreamEntryId {
                     .duration_since(UNIX_EPOCH)
                     .expect("Failed to compute millis since unix epoch")
                     .as_millis(),
-                0,
+                1,
             )
         } else {
-            let id = query_id.replace('*', "0");
+            let id = query_id.replace('*', "1");
             match id.split_once('-') {
                 Some((time_ms, index)) => match (time_ms.parse::<u128>(), index.parse::<u64>()) {
                     (Ok(time_ms), Ok(index)) => (time_ms, index),
