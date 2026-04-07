@@ -52,8 +52,9 @@ impl RespKind {
                 format!(">{}\r\n{}", arr.len(), vals.join(""))
             }
             Self::Set(arr) => {
-                let vals: Vec<String> = arr.iter().map(|x| x.encode()).collect();
-                format!("~{}\r\n{}", arr.len(), vals.join(""))
+                // let vals: Vec<String> = arr.iter().map(|x| x.encode()).collect();
+                // format!("~{}\r\n{}", arr.len(), vals.join(""))
+                String::new()
             }
             Self::Map(map) => {
                 let vals: Vec<String> = map.iter().map(|(k, v)| k.clone() + &v.encode()).collect();
@@ -245,11 +246,11 @@ where
                 let arr = Self::consume_array(data)?;
                 Ok(RespKind::Push(arr))
             }
-            '~' => {
-                // Set
-                let arr = Self::consume_array(data)?;
-                Ok(RespKind::Set(arr))
-            }
+            // '~' => {
+            //     // Set
+            //     let arr = Self::consume_array(data)?;
+            //     Ok(RespKind::Set(arr))
+            // }
             '%' => {
                 // Map
                 let map = Self::consume_map(data)?;
