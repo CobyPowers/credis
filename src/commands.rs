@@ -122,7 +122,7 @@ where
             "rpush" => self.rpush(args),
             "lrange" => self.lrange(args),
             "xadd" => self.xadd(args),
-            "xrange" => self.xadd(args),
+            "xrange" => self.xrange(args),
             _ => Ok(()),
         }
     }
