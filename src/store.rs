@@ -164,6 +164,8 @@ impl Store {
 
         if id > last_entry_id {
             stream.insert(id_str.clone(), RespKind::Map(HashMap::new()));
+            self.stream_entry_insertion_map.insert(key.clone(), id);
+
             match self.get_stream_entry_mut(key, &id_str) {
                 Some(map) => Ok(map),
                 _ => unreachable!(),
