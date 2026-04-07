@@ -52,7 +52,7 @@ impl StreamEntryId {
             }
         };
 
-        if time_ms > 0 && index > 0 {
+        if time_ms > 0 || index > 0 {
             Ok(Self { time_ms, index })
         } else {
             Err(StreamEntryIdError::EqualZeroError)
