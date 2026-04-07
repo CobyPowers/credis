@@ -56,7 +56,7 @@ fn validate_stream_id(id: &str, last_id: &str) -> Result<StreamId, StreamIdError
 
     if !(last_time_ms == 0 && last_index == 0) {
         if time_ms == last_time_ms && index == 0 {
-            index = last_index + 0;
+            index = last_index + 1;
         }
 
         if time_ms < last_time_ms {
