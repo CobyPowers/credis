@@ -28,22 +28,17 @@ pub struct StreamEntryId {
 }
 
 impl StreamEntryId {
-    fn from_query_id(
-        stream: &HashMap<String, RespKind>,
-        query_id: &String,
-    ) -> Result<Self, StreamEntryIdError> {
-        let index = stream.len().saturating_add(1) as u64;
+    fn from_query_id(query_id: &String) -> Result<Self, StreamEntryIdError> {
         let (time_ms, index) = if query_id == "*" {
             (
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("Failed to compute millis since unix epoch")
                     .as_millis(),
-                index,
+                0,
             )
         } else {
-            let id = query_id.replace('*', index.to_string().as_str());
-            println!("{}", id);
+            let id = query_id.replace('*', "0");
             match id.split_once('-') {
                 Some((time_ms, index)) => match (time_ms.parse::<u128>(), index.parse::<u64>()) {
                     (Ok(time_ms), Ok(index)) => (time_ms, index),
@@ -171,10 +166,13 @@ impl Store {
             None => self.create_stream_mut(key.clone()),
         };
 
-        let id = match StreamEntryId::from_query_id(stream, query_id) {
+        let mut id = match StreamEntryId::from_query_id(query_id) {
             Ok(id) => id,
             Err(e) => return Err(e),
         };
+        if id.time_ms == last_entry_id.time_ms {
+            id.index = last_entry_id.index + 1;
+        }
         let id_str = id.to_string();
 
         if id > last_entry_id {
