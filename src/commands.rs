@@ -400,11 +400,11 @@ where
 
         let mut store = self.ctx.inner.store.write();
         match store.create_stream_entry_mut(key, query_id) {
-            Ok(entry) => {
+            Ok((entry, id)) => {
                 for (k, v) in kv_pairs.drain(..) {
                     entry.insert(k, v);
                 }
-                self.rp.encode(&resp_bstr!(query_id))
+                self.rp.encode(&id.to_resp_value())
             }
             Err(StreamEntryIdError::ParseError) => self.rp.encode(&resp_serr!(
                 "ERR The ID specified in XADD is using an invalid format"

@@ -159,7 +159,7 @@ impl Store {
         &mut self,
         key: &String,
         query_id: &String,
-    ) -> Result<&mut HashMap<String, RespKind>, StreamEntryIdError> {
+    ) -> Result<(&mut HashMap<String, RespKind>, String), StreamEntryIdError> {
         let last_entry_id = self
             .stream_entry_insertion_map
             .get(key)
@@ -182,7 +182,7 @@ impl Store {
             self.stream_entry_insertion_map.insert(key.clone(), id);
 
             match self.get_stream_entry_mut(key, &id_str) {
-                Some(map) => Ok(map),
+                Some(map) => Ok((map, id_str)),
                 _ => unreachable!(),
             }
         } else {
