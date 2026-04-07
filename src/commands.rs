@@ -122,6 +122,7 @@ where
             "rpush" => self.rpush(args),
             "lrange" => self.lrange(args),
             "xadd" => self.xadd(args),
+            "xrange" => self.xadd(args),
             _ => Ok(()),
         }
     }
@@ -402,7 +403,7 @@ where
                 self.rp.encode(&id.to_resp_value())
             }
             Err(StreamIdError::ParseError) => self.rp.encode(&resp_serr!(
-                "ERR The ID specified in XADD is using an invalid format"
+                "ERR The ID specified in XADD is malformed"
             )),
             Err(StreamIdError::InvalidTimeError | StreamIdError::InvalidIndexError) => self.rp.encode(&resp_serr!(
                 "ERR The ID specified in XADD is equal or smaller than the target stream top item"
@@ -411,5 +412,46 @@ where
                 "ERR The ID specified in XADD must be greater than 0-0"
             )),
         }
+    }
+
+    fn xrange(&mut self, args: CommandArguments) -> CommandReturn {
+        let key = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+
+        let start_id = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+
+        let end_id = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+
+        // TODO: Find a way to coerce this into a read-only handle
+        let mut store = self.ctx.inner.store.write();
+        let stream = store.get_or_create_stream_mut(key);
+
+        let mut entries: Vec<_> = vec![];
+        for (k, v) in stream.range(start_id.clone()..end_id.clone()) {
+            match v {
+                StoreEntryKind::HashMap(map) => {
+                    let mut entry_entries = vec![];
+                    for (k, v) in map.iter() {
+                        entry_entries.push(k.to_resp_value());
+                        entry_entries.push(v.to_resp_value());
+                    }
+                    entries.push(RespKind::Array(vec![
+                        k.to_resp_value(),
+                        RespKind::Array(entry_entries),
+                    ]));
+                }
+                _ => continue,
+            }
+        }
+
+        self.rp.encode(&RespKind::Array(entries))
     }
 }

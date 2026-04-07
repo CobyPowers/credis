@@ -174,6 +174,27 @@ impl Store {
         }
     }
 
+    pub fn get_or_create_stream_mut(
+        &mut self,
+        key: &String,
+    ) -> &mut BTreeMap<String, StoreEntryKind> {
+        if self.get_stream(&key).is_none() {
+            self.create_stream_mut(key)
+        } else {
+            match self.get_stream_mut(&key) {
+                Some(list) => list,
+                None => unreachable!(),
+            }
+        }
+    }
+
+    pub fn get_stream(&self, key: &String) -> Option<&BTreeMap<String, StoreEntryKind>> {
+        self.get(key).and_then(|kind| match kind {
+            StoreEntryKind::BTreeMap(stream) => Some(stream),
+            _ => None,
+        })
+    }
+
     pub fn get_stream_mut(
         &mut self,
         key: &String,
