@@ -1,5 +1,6 @@
 use std::{
     io::{Read, Write},
+    ops::Bound::Included,
     sync::Arc,
     time::Duration,
 };
@@ -421,21 +422,25 @@ where
         };
 
         let start_id = match args.get(0) {
-            Some(RespKind::BulkString(val)) => val,
+            Some(RespKind::BulkString(val)) => val.as_str(),
             _ => return Ok(()),
         };
 
         let end_id = match args.get(0) {
-            Some(RespKind::BulkString(val)) => val,
+            Some(RespKind::BulkString(val)) => val.as_str(),
             _ => return Ok(()),
         };
 
-        // TODO: Find a way to coerce this into a read-only handle
-        let mut store = self.ctx.inner.store.write();
-        let stream = store.get_or_create_stream_mut(key);
+        let store = self.ctx.inner.store.read();
+        let stream = match store.get_stream(key) {
+            Some(stream) => stream,
+            None => return self.rp.encode(&resp_narr!()),
+        };
+
+        println!("Stream @ {}: {:?}", key, stream);
 
         let mut entries: Vec<_> = vec![];
-        for (k, v) in stream.range(start_id.clone()..end_id.clone()) {
+        for (k, v) in stream.range::<str, _>((Included(start_id), Included(end_id))) {
             match v {
                 StoreEntryKind::HashMap(map) => {
                     let mut entry_entries = vec![];
