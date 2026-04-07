@@ -14,6 +14,13 @@ pub struct Store {
     pub stream_entry_insertion_map: HashMap<String, StreamEntryId>,
 }
 
+#[derive(Debug)]
+pub enum StreamEntryIdError {
+    ParseError,
+    EqualZeroError,
+    OldEntryError,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StreamEntryId {
     time_ms: u128, // Time since unix epoch
@@ -21,7 +28,10 @@ pub struct StreamEntryId {
 }
 
 impl StreamEntryId {
-    fn from_query_id(stream: &HashMap<String, RespKind>, query_id: &String) -> Result<Self, ()> {
+    fn from_query_id(
+        stream: &HashMap<String, RespKind>,
+        query_id: &String,
+    ) -> Result<Self, StreamEntryIdError> {
         let index = stream.len().saturating_sub(1) as u64;
         let (time_ms, index) = if query_id == "*" {
             (
@@ -36,13 +46,17 @@ impl StreamEntryId {
             match id.split_once('-') {
                 Some((time_ms, index)) => match (time_ms.parse::<u128>(), index.parse::<u64>()) {
                     (Ok(time_ms), Ok(index)) => (time_ms, index),
-                    _ => return Err(()),
+                    _ => return Err(StreamEntryIdError::ParseError),
                 },
-                _ => return Err(()),
+                _ => return Err(StreamEntryIdError::ParseError),
             }
         };
 
-        Ok(Self { time_ms, index })
+        if time_ms > 0 && index > 0 {
+            Ok(Self { time_ms, index })
+        } else {
+            Err(StreamEntryIdError::EqualZeroError)
+        }
     }
 }
 
@@ -144,7 +158,7 @@ impl Store {
         &mut self,
         key: &String,
         query_id: &String,
-    ) -> Result<&mut HashMap<String, RespKind>, ()> {
+    ) -> Result<&mut HashMap<String, RespKind>, StreamEntryIdError> {
         let last_entry_id = self
             .stream_entry_insertion_map
             .get(key)
@@ -158,7 +172,7 @@ impl Store {
 
         let id = match StreamEntryId::from_query_id(stream, query_id) {
             Ok(id) => id,
-            Err(_) => return Err(()),
+            Err(e) => return Err(e),
         };
         let id_str = id.to_string();
 
@@ -171,7 +185,7 @@ impl Store {
                 _ => unreachable!(),
             }
         } else {
-            Err(())
+            Err(StreamEntryIdError::OldEntryError)
         }
     }
 

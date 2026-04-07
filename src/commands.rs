@@ -8,7 +8,7 @@ use parking_lot::{Condvar, Mutex, RwLock, RwLockWriteGuard, WaitTimeoutResult};
 
 use crate::{
     resp::{RespError, RespKind, RespParser, ToRespValue},
-    store::{Store, StoreEntry},
+    store::{Store, StoreEntry, StreamEntryIdError},
 };
 
 type CommandArguments = Vec<RespKind>;
@@ -399,19 +399,22 @@ where
         }
 
         let mut store = self.ctx.inner.store.write();
-        let stream_entry = match store.create_stream_entry_mut(key, query_id) {
-            Ok(map) => map,
-            Err(_) => {
-                return self.rp.encode(&resp_serr!(
-                    "Stream entry id must have a timestamp and index greater than the last entry"
-                ));
+        match store.create_stream_entry_mut(key, query_id) {
+            Ok(entry) => {
+                for (k, v) in kv_pairs.drain(..) {
+                    entry.insert(k, v);
+                }
+                self.rp.encode(&resp_bstr!(query_id))
             }
-        };
-
-        for (k, v) in kv_pairs.drain(..) {
-            stream_entry.insert(k, v);
+            Err(StreamEntryIdError::ParseError) => self.rp.encode(&resp_serr!(
+                "ERR The ID specified in XADD is using an invalid format"
+            )),
+            Err(StreamEntryIdError::OldEntryError) => self.rp.encode(&resp_serr!(
+                "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+            )),
+            Err(StreamEntryIdError::EqualZeroError) => self.rp.encode(&resp_serr!(
+                "ERR The ID specified in XADD must be greater than 0-0"
+            )),
         }
-
-        self.rp.encode(&resp_bstr!(query_id))
     }
 }
