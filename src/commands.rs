@@ -438,9 +438,12 @@ where
         };
 
         println!("Stream @ {}: {:?}", key, stream);
+        println!("Search Range start:{:?} end:{:?}", start_id, end_id);
 
         let mut entries: Vec<_> = vec![];
         for (k, v) in stream.range::<str, _>((Included(start_id), Included(end_id))) {
+            println!("Search Range Result k:{:?} v:{:?}", k, v);
+
             match v {
                 StoreEntryKind::HashMap(map) => {
                     let mut entry_entries = vec![];
