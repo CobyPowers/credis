@@ -55,6 +55,10 @@ fn validate_stream_id(id: &str, last_id: &str) -> Result<StreamId, StreamIdError
             index = last_index + 1;
         }
 
+        if time_ms == 0 && index == 0 {
+            return Err(StreamIdError::EqualZeroError);
+        }
+
         if time_ms < last_time_ms {
             return Err(StreamIdError::InvalidTimeError);
         }
