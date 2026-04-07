@@ -29,20 +29,9 @@ fn main() {
         loop {
             thread::sleep(STORE_SWEEP_INTERVAL);
 
-            let mut kv_store_handle = sweeper_ctx.inner.kv_store.write();
-            let mut removable_keys = vec![];
-
-            for (k, v) in kv_store_handle.iter() {
-                if v.is_expired() {
-                    removable_keys.push(k.clone());
-                }
-            }
-
-            for k in removable_keys.iter() {
-                kv_store_handle.remove(k);
-            }
-
-            drop(kv_store_handle);
+            let mut store = sweeper_ctx.inner.store.write();
+            store.sweep();
+            drop(store);
         }
     });
 

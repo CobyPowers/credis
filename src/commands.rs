@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     io::{Read, Write},
     sync::Arc,
     time::Duration,
@@ -9,19 +8,20 @@ use parking_lot::{Condvar, Mutex, RwLock, RwLockWriteGuard, WaitTimeoutResult};
 
 use crate::{
     resp::{RespError, RespKind, RespParser, ToRespValue},
-    store::StoreEntry,
+    store::{Store, StoreEntry},
 };
 
 type CommandArguments = Vec<RespKind>;
 type CommandReturn = Result<(), RespError>;
 
 // We need a middleman structure that allows us to use Condvars
-// with RwLocks since parking_lot doesn't support anything other
+// with RwLocks since parking_lot Condvars don't support anything other
 // than MutexGuards. There is probably a better way of doing this,
 // but I'm still learning rust :')
+//
 // https://github.com/Amanieu/parking_lot/issues/165
 #[derive(Default)]
-struct CondvarAny {
+pub struct CondvarAny {
     cv: Condvar,
     mtx: Mutex<()>,
 }
@@ -40,15 +40,15 @@ impl CondvarAny {
         self.cv.notify_one();
     }
 
-    fn notify_all(&self) {
-        let _guard = self.mtx.lock();
-        self.cv.notify_all();
-    }
+    // fn notify_all(&self) {
+    //     let _guard = self.mtx.lock();
+    //     self.cv.notify_all();
+    // }
 }
 
 #[derive(Default)]
 pub struct CommandContextInner {
-    pub kv_store: RwLock<HashMap<String, StoreEntry>>,
+    pub store: RwLock<Store>,
     pub list_cv: CondvarAny,
 }
 
@@ -143,16 +143,13 @@ where
             _ => return Ok(()),
         };
 
-        let store = self.ctx.inner.kv_store.read();
-        let value_type = store
-            .get(key)
-            .and_then(|entry| match entry.value() {
-                RespKind::BulkString(_) => Some("string"),
-                RespKind::Array(_) => Some("list"),
-                RespKind::Map(_) => Some("stream"),
-                _ => Some("unknown"),
-            })
-            .unwrap_or("none");
+        let store = self.ctx.inner.store.read();
+        let value_type = match store.get(key) {
+            Some(RespKind::BulkString(_)) => "string",
+            Some(RespKind::Array(_)) => "list",
+            Some(RespKind::Map(_)) => "stream",
+            _ => "none",
+        };
 
         self.rp.encode(&resp_sstr!(value_type))
     }
@@ -163,10 +160,10 @@ where
             _ => return Ok(()),
         };
 
-        let store = self.ctx.inner.kv_store.read();
-        match store.get(key) {
-            Some(entry) if !entry.is_expired() => self.rp.encode(entry.value()),
-            _ => self.rp.encode(&resp_nbstr!()),
+        let store = self.ctx.inner.store.read();
+        match store.get_string(&key) {
+            Some(val) => self.rp.encode(&val.to_resp_value()),
+            None => self.rp.encode(&resp_nbstr!()),
         }
     }
 
@@ -192,11 +189,8 @@ where
             }
         }
 
-        let mut store = self.ctx.inner.kv_store.write();
-        store.insert(
-            key.clone(),
-            StoreEntry::new(RespKind::BulkString(value.clone()), expiry),
-        );
+        let mut store = self.ctx.inner.store.write();
+        store.insert_string(key.clone(), value.clone(), expiry);
         self.rp.encode(&resp_sstr!("OK"))
     }
 
@@ -206,14 +200,8 @@ where
             _ => return Ok(()),
         };
 
-        let store = self.ctx.inner.kv_store.read();
-        let len = store
-            .get(list_name)
-            .and_then(|entry| match entry.value() {
-                RespKind::Array(list) => Some(list.len() as i64),
-                _ => None,
-            })
-            .unwrap_or(0);
+        let store = self.ctx.inner.store.read();
+        let len = store.get_list(list_name).map_or(0, |l| l.len()) as i64;
         self.rp.encode(&resp_int!(len))
     }
 
@@ -232,11 +220,8 @@ where
             _ => return Ok(()),
         };
 
-        let store = self.ctx.inner.kv_store.read();
-        let list = match store.get(list_name).and_then(|entry| match entry.value() {
-            RespKind::Array(list) => Some(list),
-            _ => None,
-        }) {
+        let store = self.ctx.inner.store.read();
+        let list = match store.get_list(list_name) {
             Some(list) => list,
             None => return self.rp.encode(&resp_arr!(vec![])),
         };
@@ -266,8 +251,9 @@ where
         };
         let args = args[1..].to_vec();
 
-        let mut store = self.ctx.inner.kv_store.write();
+        let mut store = self.ctx.inner.store.write();
         let entry = store
+            .hash_map
             .entry(list_name.clone())
             .and_modify(|entry| match entry.value_mut() {
                 RespKind::Array(list) => {
@@ -310,14 +296,9 @@ where
             Duration::MAX
         };
 
-        let mut store = self.ctx.inner.kv_store.write();
+        let mut store = self.ctx.inner.store.write();
         loop {
-            return match store
-                .get_mut(list_name)
-                .and_then(|entry| match entry.value_mut() {
-                    RespKind::Array(list) => Some(list),
-                    _ => None,
-                }) {
+            return match store.get_list_mut(list_name) {
                 Some(list) if !list.is_empty() => self
                     .rp
                     .encode(&resp_arr!(vec![list_name.to_resp_value(), list.remove(0)])),
@@ -345,13 +326,8 @@ where
             _ => 1,
         };
 
-        let mut store = self.ctx.inner.kv_store.write();
-        match store
-            .get_mut(list_name)
-            .and_then(|entry| match entry.value_mut() {
-                RespKind::Array(list) => Some(list),
-                _ => None,
-            }) {
+        let mut store = self.ctx.inner.store.write();
+        match store.get_list_mut(list_name) {
             Some(list) if !list.is_empty() => {
                 let removed: Vec<_> = list.drain(..pop_count.min(list.len())).collect();
                 if removed.len() > 1 {
@@ -371,8 +347,9 @@ where
         };
         let args = args[1..].to_vec();
 
-        let mut store = self.ctx.inner.kv_store.write();
+        let mut store = self.ctx.inner.store.write();
         let entry = store
+            .hash_map
             .entry(list_name.clone())
             .and_modify(|entry| match entry.value_mut() {
                 RespKind::Array(list) => {
@@ -394,18 +371,18 @@ where
     }
 
     fn xadd(&mut self, args: CommandArguments) -> CommandReturn {
-        let stream_key = match args.get(0) {
+        let key = match args.get(0) {
             Some(RespKind::BulkString(val)) => val,
             _ => return Ok(()),
         };
 
-        let entry_id = match args.get(1) {
+        let query_id = match args.get(1) {
             Some(RespKind::BulkString(val)) => val,
             _ => return Ok(()),
         };
 
-        let mut kv_pairs = vec![];
         let mut args = &args[2..];
+        let mut kv_pairs = vec![];
         while !args.is_empty() {
             let key = match args.get(0) {
                 Some(val) => val,
@@ -421,27 +398,20 @@ where
             args = &args[2..];
         }
 
-        let mut store = self.ctx.inner.kv_store.write();
-        let entry = store.entry(stream_key.clone()).or_insert(StoreEntry::new(
-            RespKind::Map(HashMap::new()),
-            Duration::MAX,
-        ));
-        let stream = match entry.value_mut() {
-            RespKind::Map(stream) => stream,
-            _ => return Ok(()),
-        };
-        let stream_entry = match stream
-            .entry(entry_id.clone())
-            .or_insert(RespKind::Map(HashMap::new()))
-        {
-            RespKind::Map(map) => map,
-            _ => return Ok(()),
+        let mut store = self.ctx.inner.store.write();
+        let stream_entry = match store.create_stream_entry_mut(key, query_id) {
+            Ok(map) => map,
+            Err(_) => {
+                return self.rp.encode(&resp_serr!(
+                    "Stream entry id must have a timestamp and index greater than the last entry"
+                ));
+            }
         };
 
         for (k, v) in kv_pairs.drain(..) {
             stream_entry.insert(k, v);
         }
 
-        self.rp.encode(&resp_bstr!(entry_id))
+        self.rp.encode(&resp_bstr!(query_id))
     }
 }
