@@ -421,12 +421,12 @@ where
             _ => return Ok(()),
         };
 
-        let start_id = match args.get(0) {
+        let start_id = match args.get(1) {
             Some(RespKind::BulkString(val)) => val.as_str(),
             _ => return Ok(()),
         };
 
-        let end_id = match args.get(0) {
+        let end_id = match args.get(2) {
             Some(RespKind::BulkString(val)) => val.as_str(),
             _ => return Ok(()),
         };
