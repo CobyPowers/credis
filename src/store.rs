@@ -43,6 +43,7 @@ impl StreamEntryId {
             )
         } else {
             let id = query_id.replace('*', index.to_string().as_str());
+            println!("{}", id);
             match id.split_once('-') {
                 Some((time_ms, index)) => match (time_ms.parse::<u128>(), index.parse::<u64>()) {
                     (Ok(time_ms), Ok(index)) => (time_ms, index),
