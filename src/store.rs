@@ -32,7 +32,7 @@ impl StreamEntryId {
         stream: &HashMap<String, RespKind>,
         query_id: &String,
     ) -> Result<Self, StreamEntryIdError> {
-        let index = stream.len() as u64;
+        let index = stream.len().saturating_add(1) as u64;
         let (time_ms, index) = if query_id == "*" {
             (
                 SystemTime::now()
@@ -43,7 +43,6 @@ impl StreamEntryId {
             )
         } else {
             let id = query_id.replace('*', index.to_string().as_str());
-            println!("{}", id);
             match id.split_once('-') {
                 Some((time_ms, index)) => match (time_ms.parse::<u128>(), index.parse::<u64>()) {
                     (Ok(time_ms), Ok(index)) => (time_ms, index),
