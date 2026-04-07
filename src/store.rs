@@ -1,65 +1,75 @@
 use std::{
-    collections::HashMap,
-    fmt::Display,
+    collections::{BTreeMap, HashMap, HashSet},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::resp::RespKind;
+use crate::resp::{RespKind, ToRespValue};
+
+#[derive(Debug)]
+pub enum StreamIdError {
+    ParseError,
+    EqualZeroError,
+    InvalidTimeError,
+    InvalidIndexError,
+}
+
+struct StreamId(u128, u64);
+
+impl ToString for StreamId {
+    fn to_string(&self) -> String {
+        format!("{}-{}", self.0, self.1)
+    }
+}
+
+fn parse_stream_id(id: &str, index: u64) -> Result<StreamId, StreamIdError> {
+    let (time_ms, index) = if id.is_empty() {
+        (0, 0)
+    } else if id == "*" {
+        (
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Failed to compute millis since unix epoch")
+                .as_millis(),
+            index,
+        )
+    } else {
+        let id = id.replace('*', index.to_string().as_str());
+        match id.split_once('-') {
+            Some((time_ms, index)) => match (time_ms.parse::<u128>(), index.parse::<u64>()) {
+                (Ok(time_ms), Ok(index)) => (time_ms, index),
+                _ => return Err(StreamIdError::ParseError),
+            },
+            _ => return Err(StreamIdError::ParseError),
+        }
+    };
+
+    Ok(StreamId(time_ms, index))
+}
+
+fn validate_stream_id(id: &str, last_id: &str) -> Result<StreamId, StreamIdError> {
+    let StreamId(last_time_ms, last_index) = parse_stream_id(last_id, 0)?;
+    let StreamId(time_ms, index) = parse_stream_id(id, last_index + 1)?;
+
+    if time_ms == 0 && index == 0 {
+        return Err(StreamIdError::EqualZeroError);
+    }
+
+    if !(last_time_ms == 0 && last_index == 0) {
+        if time_ms < last_time_ms {
+            return Err(StreamIdError::InvalidTimeError);
+        }
+
+        if time_ms == last_time_ms && index <= last_index {
+            return Err(StreamIdError::InvalidIndexError);
+        }
+    }
+
+    Ok(StreamId(time_ms, index))
+}
 
 #[derive(Debug, Default)]
 pub struct Store {
     pub hash_map: HashMap<String, StoreEntry>,
-    // Tracks last insertion id for all stream
-    // entries to ensure O(1) time complexity
-    pub stream_entry_insertion_map: HashMap<String, StreamEntryId>,
-}
-
-#[derive(Debug)]
-pub enum StreamEntryIdError {
-    ParseError,
-    EqualZeroError,
-    OldEntryError,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct StreamEntryId {
-    time_ms: u128, // Time since unix epoch
-    index: u64,
-}
-
-impl StreamEntryId {
-    fn from_query_id(query_id: &String) -> Result<Self, StreamEntryIdError> {
-        let (time_ms, index) = if query_id == "*" {
-            (
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Failed to compute millis since unix epoch")
-                    .as_millis(),
-                1,
-            )
-        } else {
-            let id = query_id.replace('*', "1");
-            match id.split_once('-') {
-                Some((time_ms, index)) => match (time_ms.parse::<u128>(), index.parse::<u64>()) {
-                    (Ok(time_ms), Ok(index)) => (time_ms, index),
-                    _ => return Err(StreamEntryIdError::ParseError),
-                },
-                _ => return Err(StreamEntryIdError::ParseError),
-            }
-        };
-
-        if time_ms > 0 || index > 0 {
-            Ok(Self { time_ms, index })
-        } else {
-            Err(StreamEntryIdError::EqualZeroError)
-        }
-    }
-}
-
-impl Display for StreamEntryId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}-{}", self.time_ms, self.index).as_str())
-    }
 }
 
 impl Store {
@@ -72,15 +82,25 @@ impl Store {
             }
         }
 
-        for k in removable_keys.iter() {
-            self.hash_map.remove(k);
+        for k in removable_keys.drain(..) {
+            self.hash_map.remove(&k);
         }
     }
 
-    pub fn get(&self, key: &String) -> Option<&RespKind> {
+    pub fn get(&self, key: &String) -> Option<&StoreEntryKind> {
         self.hash_map.get(key).and_then(|entry| {
             if !entry.is_expired() {
                 Some(entry.value())
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn get_mut(&mut self, key: &String) -> Option<&mut StoreEntryKind> {
+        self.hash_map.get_mut(key).and_then(|entry| {
+            if !entry.is_expired() {
+                Some(entry.value_mut())
             } else {
                 None
             }
@@ -92,99 +112,92 @@ impl Store {
     }
 
     pub fn insert_string(&mut self, key: String, value: String, expiry: Duration) {
-        let entry = StoreEntry::new(RespKind::BulkString(value), expiry);
+        let entry = StoreEntry::new(StoreEntryKind::String(value), expiry);
         self.hash_map.insert(key, entry);
     }
 
     pub fn get_string(&self, key: &String) -> Option<&String> {
-        self.hash_map
-            .get(key)
-            .and_then(|entry| match entry.value() {
-                RespKind::BulkString(val) if !entry.is_expired() => Some(val),
-                _ => None,
-            })
+        self.get(key).and_then(|kind| match kind {
+            StoreEntryKind::String(val) => Some(val),
+            _ => None,
+        })
     }
 
-    pub fn insert_list_mut(&mut self, key: String, values: Vec<RespKind>) -> &mut Vec<RespKind> {
-        let entry = StoreEntry::new(RespKind::Array(values), Duration::MAX);
+    pub fn create_list_mut(&mut self, key: &String) -> &mut Vec<String> {
+        let entry = StoreEntry::new(StoreEntryKind::Vector(vec![]), Duration::MAX);
         self.hash_map.insert(key.clone(), entry);
-        match self.get_list_mut(&key) {
+        match self.get_list_mut(key) {
             Some(list) => list,
             _ => unreachable!(),
         }
     }
 
-    pub fn get_list(&self, key: &String) -> Option<&Vec<RespKind>> {
-        self.hash_map
-            .get(key)
-            .and_then(|entry| match entry.value() {
-                RespKind::Array(list) => Some(list),
-                _ => None,
-            })
+    pub fn get_or_create_list_mut(&mut self, key: &String) -> &mut Vec<String> {
+        if self.get_list(&key).is_none() {
+            self.create_list_mut(key)
+        } else {
+            match self.get_list_mut(&key) {
+                Some(list) => list,
+                None => unreachable!(),
+            }
+        }
     }
 
-    pub fn get_list_mut(&mut self, key: &String) -> Option<&mut Vec<RespKind>> {
-        self.hash_map
-            .get_mut(key)
-            .and_then(|entry| match entry.value_mut() {
-                RespKind::Array(list) => Some(list),
-                _ => None,
-            })
+    pub fn get_list(&self, key: &String) -> Option<&Vec<String>> {
+        self.get(key).and_then(|kind| match kind {
+            StoreEntryKind::Vector(list) => Some(list),
+            _ => None,
+        })
     }
 
-    pub fn create_stream_mut(&mut self, key: String) -> &mut HashMap<String, RespKind> {
-        let entry = StoreEntry::new(RespKind::Map(HashMap::new()), Duration::MAX);
+    pub fn get_list_mut(&mut self, key: &String) -> Option<&mut Vec<String>> {
+        self.get_mut(key).and_then(|kind| match kind {
+            StoreEntryKind::Vector(list) => Some(list),
+            _ => None,
+        })
+    }
+
+    pub fn create_stream_mut(&mut self, key: &String) -> &mut BTreeMap<String, StoreEntryKind> {
+        let entry = StoreEntry::new(StoreEntryKind::BTreeMap(BTreeMap::new()), Duration::MAX);
         self.hash_map.insert(key.clone(), entry);
-        match self.get_stream_mut(&key) {
+        match self.get_stream_mut(key) {
             Some(map) => map,
             _ => unreachable!(),
         }
     }
 
-    pub fn get_stream_mut(&mut self, key: &String) -> Option<&mut HashMap<String, RespKind>> {
-        self.hash_map
-            .get_mut(key)
-            .and_then(|entry| match entry.value_mut() {
-                RespKind::Map(map) => Some(map),
-                _ => None,
-            })
+    pub fn get_stream_mut(
+        &mut self,
+        key: &String,
+    ) -> Option<&mut BTreeMap<String, StoreEntryKind>> {
+        self.get_mut(key).and_then(|kind| match kind {
+            StoreEntryKind::BTreeMap(stream) => Some(stream),
+            _ => None,
+        })
     }
 
     pub fn create_stream_entry_mut(
         &mut self,
         key: &String,
-        query_id: &String,
-    ) -> Result<(&mut HashMap<String, RespKind>, String), StreamEntryIdError> {
-        let last_entry_id = self
-            .stream_entry_insertion_map
-            .get(key)
-            .cloned()
-            .unwrap_or_default();
-
+        id: &String,
+    ) -> Result<(&mut HashMap<String, StoreEntryKind>, String), StreamIdError> {
         let stream = match self.get_stream_mut(key) {
             Some(map) => map,
-            None => self.create_stream_mut(key.clone()),
+            None => self.create_stream_mut(key),
         };
 
-        let mut id = match StreamEntryId::from_query_id(query_id) {
-            Ok(id) => id,
-            Err(e) => return Err(e),
+        let last_id = match stream.last_key_value() {
+            Some((key, _)) => key.as_str(),
+            None => "",
         };
-        if id.time_ms == last_entry_id.time_ms {
-            id.index = last_entry_id.index + 1;
-        }
+
+        let id = validate_stream_id(id, last_id)?;
         let id_str = id.to_string();
 
-        if id > last_entry_id {
-            stream.insert(id_str.clone(), RespKind::Map(HashMap::new()));
-            self.stream_entry_insertion_map.insert(key.clone(), id);
-
-            match self.get_stream_entry_mut(key, &id_str) {
-                Some(map) => Ok((map, id_str)),
-                _ => unreachable!(),
-            }
-        } else {
-            Err(StreamEntryIdError::OldEntryError)
+        stream.insert(id_str.clone(), StoreEntryKind::HashMap(HashMap::new()));
+        match self.get_stream_entry_mut(key, &id_str) {
+            Some(map) => Ok((map, id_str)),
+            _ => unreachable!(),
         }
     }
 
@@ -192,26 +205,24 @@ impl Store {
         &mut self,
         key: &String,
         id: &String,
-    ) -> Option<&mut HashMap<String, RespKind>> {
+    ) -> Option<&mut HashMap<String, StoreEntryKind>> {
         let stream = self.get_stream_mut(key)?;
-        stream
-            .get_mut(id)
-            .and_then(|stream_entry| match stream_entry {
-                RespKind::Map(map) => Some(map),
-                _ => None,
-            })
+        stream.get_mut(id).and_then(|entry| match entry {
+            StoreEntryKind::HashMap(map) => Some(map),
+            _ => None,
+        })
     }
 }
 
 #[derive(Debug)]
 pub struct StoreEntry {
-    value: RespKind,
+    value: StoreEntryKind,
     insertion_time: SystemTime,
     expiry_dur: Option<Duration>,
 }
 
 impl StoreEntry {
-    pub fn new(value: RespKind, expiry: Duration) -> Self {
+    pub fn new(value: StoreEntryKind, expiry: Duration) -> Self {
         Self {
             value,
             insertion_time: SystemTime::now(),
@@ -223,15 +234,15 @@ impl StoreEntry {
         }
     }
 
-    pub fn set_value(&mut self, value: RespKind) {
+    pub fn set_value(&mut self, value: StoreEntryKind) {
         self.value = value;
     }
 
-    pub fn value(&self) -> &RespKind {
+    pub fn value(&self) -> &StoreEntryKind {
         &self.value
     }
 
-    pub fn value_mut(&mut self) -> &mut RespKind {
+    pub fn value_mut(&mut self) -> &mut StoreEntryKind {
         &mut self.value
     }
 
@@ -244,6 +255,31 @@ impl StoreEntry {
                     >= duration
             }
             None => false,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum StoreEntryKind {
+    String(String),
+    Integer(i64),
+    Double(f64),
+    Set(HashSet<String>),
+    Vector(Vec<String>),
+    HashMap(HashMap<String, StoreEntryKind>),
+    BTreeMap(BTreeMap<String, StoreEntryKind>),
+}
+
+impl ToRespValue for StoreEntryKind {
+    fn to_resp_value(&self) -> RespKind {
+        match self {
+            Self::String(strg) => strg.to_resp_value(),
+            Self::Integer(int) => int.to_resp_value(),
+            Self::Double(double) => double.to_resp_value(),
+            Self::Set(set) => set.to_resp_value(),
+            Self::Vector(vec) => vec.to_resp_value(),
+            Self::HashMap(hash_map) => hash_map.to_resp_value(),
+            Self::BTreeMap(btree_map) => btree_map.to_resp_value(),
         }
     }
 }

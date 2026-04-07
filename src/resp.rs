@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::{self, Display},
     io::{BufReader, BufWriter, Read, Write},
 };
@@ -18,8 +18,7 @@ pub enum RespKind {
     BulkError(String),
     Array(Vec<RespKind>),
     Push(Vec<RespKind>),
-    // TODO: Implement a proper set instead of relying on vec
-    Set(Vec<RespKind>),
+    Set(HashSet<String>),
     Map(HashMap<String, RespKind>),
     Attributes(HashMap<String, RespKind>),
     NullBulkString,
@@ -105,6 +104,12 @@ impl ToRespValue for String {
     }
 }
 
+impl ToRespValue for HashSet<String> {
+    fn to_resp_value(&self) -> RespKind {
+        RespKind::Set(self.clone())
+    }
+}
+
 impl<T: ToRespValue> ToRespValue for Vec<T> {
     fn to_resp_value(&self) -> RespKind {
         RespKind::Array(self.iter().map(|x| x.to_resp_value()).collect())
@@ -112,6 +117,16 @@ impl<T: ToRespValue> ToRespValue for Vec<T> {
 }
 
 impl<T: ToRespValue> ToRespValue for HashMap<String, T> {
+    fn to_resp_value(&self) -> RespKind {
+        RespKind::Map(
+            self.iter()
+                .map(|(k, v)| (k.clone(), v.to_resp_value()))
+                .collect(),
+        )
+    }
+}
+
+impl<T: ToRespValue> ToRespValue for BTreeMap<String, T> {
     fn to_resp_value(&self) -> RespKind {
         RespKind::Map(
             self.iter()

@@ -8,7 +8,7 @@ use parking_lot::{Condvar, Mutex, RwLock, RwLockWriteGuard, WaitTimeoutResult};
 
 use crate::{
     resp::{RespError, RespKind, RespParser, ToRespValue},
-    store::{Store, StoreEntry, StreamEntryIdError},
+    store::{Store, StoreEntryKind, StreamIdError},
 };
 
 type CommandArguments = Vec<RespKind>;
@@ -145,9 +145,9 @@ where
 
         let store = self.ctx.inner.store.read();
         let value_type = match store.get(key) {
-            Some(RespKind::BulkString(_)) => "string",
-            Some(RespKind::Array(_)) => "list",
-            Some(RespKind::Map(_)) => "stream",
+            Some(StoreEntryKind::String(_)) => "string",
+            Some(StoreEntryKind::Vector(_)) => "list",
+            Some(StoreEntryKind::BTreeMap(_)) => "stream",
             _ => "none",
         };
 
@@ -241,7 +241,7 @@ where
             .get(start_i..=end_i.min(list.len() - 1))
             .map(|x| x.to_vec())
             .unwrap_or_default();
-        self.rp.encode(&resp_arr!(new_list))
+        self.rp.encode(&new_list.to_resp_value())
     }
 
     fn lpush(&mut self, args: CommandArguments) -> CommandReturn {
@@ -249,34 +249,24 @@ where
             Some(RespKind::BulkString(val)) => val,
             _ => return Ok(()),
         };
-        let args = args[1..].to_vec();
+
+        let args: Vec<_> = args[1..]
+            .iter()
+            .filter_map(|x| match x {
+                RespKind::BulkString(val) => Some(val),
+                _ => None,
+            })
+            .collect();
 
         let mut store = self.ctx.inner.store.write();
-        let entry = store
-            .hash_map
-            .entry(list_name.clone())
-            .and_modify(|entry| match entry.value_mut() {
-                RespKind::Array(list) => {
-                    args.iter().for_each(|arg| list.insert(0, arg.clone()));
-                }
-                _ => {
-                    entry.set_value(resp_arr!(args.clone().into_iter().rev().collect()));
-                }
-            })
-            .or_insert_with(|| {
-                StoreEntry::new(
-                    RespKind::Array(args.into_iter().rev().collect()),
-                    Duration::MAX,
-                )
-            });
+        let list = store.get_or_create_list_mut(list_name);
+
+        for arg in args {
+            list.insert(0, arg.clone());
+        }
 
         self.ctx.inner.list_cv.notify_one();
-
-        let len = match entry.value() {
-            RespKind::Array(list) => list.len() as i64,
-            _ => 0,
-        };
-        self.rp.encode(&resp_int!(len))
+        self.rp.encode(&resp_int!(list.len() as i64))
     }
 
     fn blpop(&mut self, args: CommandArguments) -> CommandReturn {
@@ -299,9 +289,10 @@ where
         let mut store = self.ctx.inner.store.write();
         loop {
             return match store.get_list_mut(list_name) {
-                Some(list) if !list.is_empty() => self
-                    .rp
-                    .encode(&resp_arr!(vec![list_name.to_resp_value(), list.remove(0)])),
+                Some(list) if !list.is_empty() => self.rp.encode(&resp_arr!(vec![
+                    list_name.to_resp_value(),
+                    list.remove(0).to_resp_value()
+                ])),
                 _ => {
                     let res = self.ctx.inner.list_cv.wait_for(&mut store, wait_timeout);
 
@@ -331,9 +322,9 @@ where
             Some(list) if !list.is_empty() => {
                 let removed: Vec<_> = list.drain(..pop_count.min(list.len())).collect();
                 if removed.len() > 1 {
-                    self.rp.encode(&resp_arr!(removed))
+                    self.rp.encode(&removed.to_resp_value())
                 } else {
-                    self.rp.encode(&removed[0])
+                    self.rp.encode(&removed[0].to_resp_value())
                 }
             }
             _ => self.rp.encode(&resp_nbstr!()),
@@ -345,29 +336,24 @@ where
             Some(RespKind::BulkString(val)) => val,
             _ => return Ok(()),
         };
-        let args = args[1..].to_vec();
+
+        let args: Vec<_> = args[1..]
+            .iter()
+            .filter_map(|x| match x {
+                RespKind::BulkString(val) => Some(val),
+                _ => None,
+            })
+            .collect();
 
         let mut store = self.ctx.inner.store.write();
-        let entry = store
-            .hash_map
-            .entry(list_name.clone())
-            .and_modify(|entry| match entry.value_mut() {
-                RespKind::Array(list) => {
-                    args.iter().for_each(|arg| list.push(arg.clone()));
-                }
-                _ => {
-                    entry.set_value(resp_arr!(args.clone()));
-                }
-            })
-            .or_insert_with(|| StoreEntry::new(RespKind::Array(args.clone()), Duration::MAX));
+        let list = store.get_or_create_list_mut(list_name);
+
+        for arg in args {
+            list.push(arg.clone());
+        }
 
         self.ctx.inner.list_cv.notify_one();
-
-        let len = match entry.value() {
-            RespKind::Array(list) => list.len() as i64,
-            _ => 0,
-        };
-        self.rp.encode(&resp_int!(len))
+        self.rp.encode(&resp_int!(list.len() as i64))
     }
 
     fn xadd(&mut self, args: CommandArguments) -> CommandReturn {
@@ -376,7 +362,7 @@ where
             _ => return Ok(()),
         };
 
-        let query_id = match args.get(1) {
+        let id = match args.get(1) {
             Some(RespKind::BulkString(val)) => val,
             _ => return Ok(()),
         };
@@ -399,20 +385,29 @@ where
         }
 
         let mut store = self.ctx.inner.store.write();
-        match store.create_stream_entry_mut(key, query_id) {
+        match store.create_stream_entry_mut(key, id) {
             Ok((entry, id)) => {
                 for (k, v) in kv_pairs.drain(..) {
-                    entry.insert(k, v);
+                    // TODO: Check if stream entry values can contain types other than strings,
+                    // integers, and doubles
+                    let entry_v = match v {
+                        RespKind::BulkString(val) => StoreEntryKind::String(val),
+                        RespKind::Integer(val) => StoreEntryKind::Integer(val),
+                        RespKind::Double(val) => StoreEntryKind::Double(val),
+                        _ => continue
+                    };
+
+                    entry.insert(k, entry_v);
                 }
                 self.rp.encode(&id.to_resp_value())
             }
-            Err(StreamEntryIdError::ParseError) => self.rp.encode(&resp_serr!(
+            Err(StreamIdError::ParseError) => self.rp.encode(&resp_serr!(
                 "ERR The ID specified in XADD is using an invalid format"
             )),
-            Err(StreamEntryIdError::OldEntryError) => self.rp.encode(&resp_serr!(
+            Err(StreamIdError::InvalidTimeError | StreamIdError::InvalidIndexError) => self.rp.encode(&resp_serr!(
                 "ERR The ID specified in XADD is equal or smaller than the target stream top item"
             )),
-            Err(StreamEntryIdError::EqualZeroError) => self.rp.encode(&resp_serr!(
+            Err(StreamIdError::EqualZeroError) => self.rp.encode(&resp_serr!(
                 "ERR The ID specified in XADD must be greater than 0-0"
             )),
         }
