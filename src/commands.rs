@@ -479,14 +479,25 @@ where
             _ => return Ok(()),
         };
 
-        let id = match args.get(1) {
-            Some(RespKind::BulkString(v)) => v.as_str(),
+        let mut id = match args.get(1) {
+            Some(RespKind::BulkString(v)) => v.clone(),
             _ => return Ok(()),
         };
 
         let mut store = self.ctx.inner.store.read();
+
+        if id == "$" {
+            id = store
+                .get_stream(key)
+                .and_then(|stream| match stream.last_key_value() {
+                    Some((k, _)) => Some(k.clone()),
+                    None => None,
+                })
+                .unwrap_or(id);
+        }
+
         loop {
-            return match store.search_stream_entries(key, (Excluded(id), Included("?"))) {
+            return match store.search_stream_entries(key, (Excluded(id.as_str()), Included("?"))) {
                 Some(results) => {
                     let payload = vec![vec![StoreEntryKind::String(key.to_string()), results]];
                     self.rp.encode(&payload.to_resp_value())
