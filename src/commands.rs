@@ -473,10 +473,12 @@ where
 
         let mut stream_entries = vec![];
         for (key, id) in key_id_pairs {
+            println!("key:{}  id:{}", key, id);
             let stream_entry = match store.get_stream_entry(key, id) {
                 Some(stream) => stream,
                 None => continue,
             };
+            println!("entry:{:?}", stream_entry);
             stream_entries.push(store.stream_entry_to_store_entry(key, stream_entry))
         }
 
