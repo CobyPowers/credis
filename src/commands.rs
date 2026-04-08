@@ -1,6 +1,9 @@
 use std::{
     io::{Read, Write},
-    ops::Bound::{Excluded, Included},
+    ops::{
+        AddAssign,
+        Bound::{Excluded, Included},
+    },
     sync::Arc,
     time::Duration,
 };
@@ -95,6 +98,7 @@ where
             "xadd" => self.xadd(args),
             "xrange" => self.xrange(args),
             "xread" => self.xread(args),
+            "incr" => self.incr(args),
             _ => Ok(()),
         }
     }
@@ -142,7 +146,7 @@ where
 
     fn set(&mut self, args: CommandArguments) -> CommandReturn {
         let (key, value) = match (args.get(0), args.get(1)) {
-            (Some(RespKind::BulkString(key)), Some(RespKind::BulkString(val))) => (key, val),
+            (Some(RespKind::BulkString(key)), Some(val)) => (key, val),
             _ => return Ok(()),
         };
 
@@ -163,7 +167,7 @@ where
         }
 
         let mut store = self.ctx.inner.store.write();
-        store.insert_string(key.clone(), value.clone(), expiry);
+        store.insert_resp(key.clone(), value.clone(), expiry);
         self.rp.encode(&resp_sstr!("OK"))
     }
 
@@ -489,10 +493,7 @@ where
         if id == "$" {
             id = store
                 .get_stream(key)
-                .and_then(|stream| match stream.last_key_value() {
-                    Some((k, _)) => Some(k.clone()),
-                    None => None,
-                })
+                .and_then(|s| s.last_key_value().map(|(k, _)| k.clone()))
                 .unwrap_or(id);
         }
 
@@ -512,6 +513,28 @@ where
                     continue;
                 }
             };
+        }
+    }
+
+    fn incr(&mut self, args: CommandArguments) -> CommandReturn {
+        let key = match args.get(0) {
+            Some(RespKind::BulkString(v)) => v.as_str(),
+            _ => return Ok(()),
+        };
+
+        let mut store = self.ctx.inner.store.write();
+        match store.get_mut(key) {
+            Some(StoreEntryKind::Integer(val)) => {
+                val.add_assign(1);
+                self.rp.encode(&resp_int!(*val))
+            }
+            Some(_) => self
+                .rp
+                .encode(&resp_berr!("ERR value is not an integer or out of range")),
+            None => {
+                store.insert_integer(key.to_string(), 1);
+                self.rp.encode(&resp_int!(1))
+            }
         }
     }
 }

@@ -120,6 +120,19 @@ impl Store {
         self.hash_map.remove(key);
     }
 
+    pub fn insert_resp(&mut self, key: String, value: RespKind, expiry: Duration) {
+        let entry = StoreEntry::new(
+            match value {
+                RespKind::BulkString(val) => StoreEntryKind::String(val),
+                RespKind::Integer(val) => StoreEntryKind::Integer(val),
+                RespKind::Double(val) => StoreEntryKind::Double(val),
+                _ => todo!(),
+            },
+            expiry,
+        );
+        self.hash_map.insert(key, entry);
+    }
+
     pub fn insert_string(&mut self, key: String, value: String, expiry: Duration) {
         let entry = StoreEntry::new(StoreEntryKind::String(value), expiry);
         self.hash_map.insert(key, entry);
@@ -130,6 +143,11 @@ impl Store {
             StoreEntryKind::String(val) => Some(val),
             _ => None,
         })
+    }
+
+    pub fn insert_integer(&mut self, key: String, value: i64) {
+        let entry = StoreEntry::new(StoreEntryKind::Integer(value), Duration::MAX);
+        self.hash_map.insert(key, entry);
     }
 
     pub fn create_list_mut(&mut self, key: &String) -> &mut Vec<String> {
