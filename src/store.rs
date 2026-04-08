@@ -264,7 +264,12 @@ impl Store {
                 _ => None,
             })
             .collect();
-        Some(StoreEntryKind::Vector(results))
+
+        if !results.is_empty() {
+            Some(StoreEntryKind::Vector(results))
+        } else {
+            None
+        }
     }
 
     pub fn stream_to_store_entry(
