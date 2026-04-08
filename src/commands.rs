@@ -471,17 +471,15 @@ where
 
         let store = self.ctx.inner.store.read();
 
-        let mut stream_entries = vec![];
+        let mut payload = vec![];
         for (key, id) in key_id_pairs {
-            println!("key:{}  id:{}", key, id);
-            let stream_entry = match store.get_stream_entry(key, id) {
-                Some(stream) => stream,
-                None => continue,
+            let results = match store.search_stream_entries(key, id, "?") {
+                Some(results) => results,
+                None => StoreEntryKind::Vector(vec![]),
             };
-            println!("entry:{:?}", stream_entry);
-            stream_entries.push(store.stream_entry_to_store_entry(key, stream_entry))
+            payload.push(vec![StoreEntryKind::String(key.to_string()), results]);
         }
 
-        self.rp.encode(&stream_entries.to_resp_value())
+        self.rp.encode(&payload.to_resp_value())
     }
 }
