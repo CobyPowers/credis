@@ -1,13 +1,13 @@
 use std::{
     io::{Read, Write},
-    ops::Bound::Included,
     sync::Arc,
     time::Duration,
 };
 
-use parking_lot::{Condvar, Mutex, RwLock, RwLockWriteGuard, WaitTimeoutResult};
+use parking_lot::RwLock;
 
 use crate::{
+    condvar::{CondvarRead, CondvarWrite},
     resp::{RespError, RespKind, RespParser, ToRespValue},
     store::{Store, StoreEntryKind, StreamIdError},
 };
@@ -15,42 +15,11 @@ use crate::{
 type CommandArguments = Vec<RespKind>;
 type CommandReturn = Result<(), RespError>;
 
-// We need a middleman structure that allows us to use Condvars
-// with RwLocks since parking_lot Condvars don't support anything other
-// than MutexGuards. There is probably a better way of doing this,
-// but I'm still learning rust :')
-//
-// https://github.com/Amanieu/parking_lot/issues/165
-#[derive(Default)]
-pub struct CondvarAny {
-    cv: Condvar,
-    mtx: Mutex<()>,
-}
-
-impl CondvarAny {
-    fn wait_for<T>(&self, g: &mut RwLockWriteGuard<'_, T>, timeout: Duration) -> WaitTimeoutResult {
-        let guard = self.mtx.lock();
-        RwLockWriteGuard::unlocked(g, || {
-            let mut guard = guard;
-            self.cv.wait_for(&mut guard, timeout)
-        })
-    }
-
-    fn notify_one(&self) {
-        let _guard = self.mtx.lock();
-        self.cv.notify_one();
-    }
-
-    // fn notify_all(&self) {
-    //     let _guard = self.mtx.lock();
-    //     self.cv.notify_all();
-    // }
-}
-
 #[derive(Default)]
 pub struct CommandContextInner {
     pub store: RwLock<Store>,
-    pub list_cv: CondvarAny,
+    pub list_cv: CondvarWrite,
+    pub stream_cv: CondvarRead,
 }
 
 #[derive(Default)]
@@ -278,13 +247,13 @@ where
             _ => return Ok(()),
         };
 
-        let wait_timeout = match args.get(1) {
+        let timeout = match args.get(1) {
             Some(RespKind::BulkString(val)) => val.parse::<f64>().unwrap_or(0f64),
             _ => 0f64,
         };
 
-        let wait_timeout = if wait_timeout > 0f64 {
-            Duration::from_secs_f64(wait_timeout)
+        let timeout = if timeout > 0f64 {
+            Duration::from_secs_f64(timeout)
         } else {
             Duration::MAX
         };
@@ -297,7 +266,7 @@ where
                     list.remove(0).to_resp_value()
                 ])),
                 _ => {
-                    let res = self.ctx.inner.list_cv.wait_for(&mut store, wait_timeout);
+                    let res = self.ctx.inner.list_cv.wait_for(&mut store, timeout);
 
                     if res.timed_out() {
                         return self.rp.encode(&resp_narr!());
@@ -402,6 +371,7 @@ where
 
                     entry.insert(k, entry_v);
                 }
+                self.ctx.inner.stream_cv.notify_one();
                 self.rp.encode(&id.to_resp_value())
             }
             Err(StreamIdError::ParseError) => self.rp.encode(&resp_serr!(
@@ -444,28 +414,44 @@ where
     }
 
     fn xread(&mut self, args: CommandArguments) -> CommandReturn {
-        let _ = match args.get(0) {
-            Some(RespKind::BulkString(val)) => val,
+        let mode = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val.to_lowercase(),
             _ => return Ok(()),
         };
 
-        let args = &args[1..].to_vec();
+        if mode == "block" {
+            let timeout = if let Some(RespKind::BulkString(timeout)) = args.get(1)
+                && let Ok(ms) = timeout.parse::<u64>()
+            {
+                Duration::from_millis(ms)
+            } else {
+                Duration::MAX
+            };
+
+            self.xread_block(args[3..].to_vec(), timeout)
+        } else {
+            self.xread_nonblock(args[1..].to_vec())
+        }
+    }
+
+    fn xread_nonblock(&mut self, args: CommandArguments) -> CommandReturn {
         if args.len() % 2 != 0 {
             return Ok(());
         }
 
-        let mut key_id_pairs = vec![];
-        for i in 0..args.len() / 2 {
-            let key = match args.get(i) {
-                Some(RespKind::BulkString(val)) => val.as_str(),
+        let half = args.len() / 2;
+        let (keys, ids) = args.split_at(half);
+
+        let mut key_id_pairs = Vec::with_capacity(half);
+        for i in 0..half {
+            let key = match keys.get(i) {
+                Some(RespKind::BulkString(v)) => v.as_str(),
                 _ => return Ok(()),
             };
-
-            let id = match args.get(i + args.len() / 2) {
-                Some(RespKind::BulkString(val)) => val.as_str(),
+            let id = match ids.get(i) {
+                Some(RespKind::BulkString(v)) => v.as_str(),
                 _ => return Ok(()),
             };
-
             key_id_pairs.push((key, id));
         }
 
@@ -481,5 +467,36 @@ where
         }
 
         self.rp.encode(&payload.to_resp_value())
+    }
+
+    fn xread_block(&mut self, args: CommandArguments, timeout: Duration) -> CommandReturn {
+        let key = match args.get(0) {
+            Some(RespKind::BulkString(v)) => v.as_str(),
+            _ => return Ok(()),
+        };
+
+        let id = match args.get(1) {
+            Some(RespKind::BulkString(v)) => v.as_str(),
+            _ => return Ok(()),
+        };
+
+        let mut store = self.ctx.inner.store.read();
+        loop {
+            return match store.search_stream_entries(key, id, "?") {
+                Some(results) => {
+                    let payload = vec![vec![StoreEntryKind::String(key.to_string()), results]];
+                    self.rp.encode(&payload.to_resp_value())
+                }
+                None => {
+                    let res = self.ctx.inner.stream_cv.wait_for(&mut store, timeout);
+
+                    if res.timed_out() {
+                        return self.rp.encode(&resp_narr!());
+                    }
+
+                    continue;
+                }
+            };
+        }
     }
 }

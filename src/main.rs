@@ -1,6 +1,7 @@
 #[macro_use]
 mod resp;
 mod commands;
+mod condvar;
 mod store;
 
 use std::{
