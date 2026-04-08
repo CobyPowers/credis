@@ -460,12 +460,17 @@ where
     }
 
     fn xread(&mut self, args: CommandArguments) -> CommandReturn {
-        let key = match args.get(0) {
+        let _ = match args.get(0) {
             Some(RespKind::BulkString(val)) => val,
             _ => return Ok(()),
         };
 
-        let id = match args.get(1) {
+        let key = match args.get(1) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+
+        let id = match args.get(2) {
             Some(RespKind::BulkString(val)) => val.as_str(),
             _ => return Ok(()),
         };
