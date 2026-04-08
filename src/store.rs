@@ -230,6 +230,18 @@ impl Store {
         }
     }
 
+    pub fn get_stream_entry(
+        &self,
+        key: &String,
+        id: &String,
+    ) -> Option<&HashMap<String, StoreEntryKind>> {
+        let stream = self.get_stream(key)?;
+        stream.get(id).and_then(|entry| match entry {
+            StoreEntryKind::HashMap(map) => Some(map),
+            _ => None,
+        })
+    }
+
     pub fn get_stream_entry_mut(
         &mut self,
         key: &String,
@@ -288,7 +300,7 @@ impl StoreEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StoreEntryKind {
     String(String),
     Integer(i64),

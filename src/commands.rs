@@ -124,6 +124,7 @@ where
             "lrange" => self.lrange(args),
             "xadd" => self.xadd(args),
             "xrange" => self.xrange(args),
+            "xread" => self.xread(args),
             _ => Ok(()),
         }
     }
@@ -431,6 +432,7 @@ where
             _ => return Ok(()),
         };
 
+        // '=' comes after '9' in the ascii table which forces the map to search until the end
         if end_id == "+" {
             end_id = "=";
         }
@@ -441,24 +443,45 @@ where
             None => return self.rp.encode(&resp_narr!()),
         };
 
-        let mut entries: Vec<_> = vec![];
-        for (k, v) in stream.range::<str, _>((Included(start_id), Included(end_id))) {
+        let mut entries: Vec<Vec<StoreEntryKind>> = vec![];
+        for (_, v) in stream.range::<str, _>((Included(start_id), Included(end_id))) {
             match v {
                 StoreEntryKind::HashMap(map) => {
-                    let mut entry_entries = vec![];
-                    for (k, v) in map.iter() {
-                        entry_entries.push(k.to_resp_value());
-                        entry_entries.push(v.to_resp_value());
-                    }
-                    entries.push(RespKind::Array(vec![
-                        k.to_resp_value(),
-                        RespKind::Array(entry_entries),
-                    ]));
+                    entries.push(
+                        map.iter()
+                            .flat_map(|(k, v)| vec![StoreEntryKind::String(k.clone()), v.clone()])
+                            .collect(),
+                    );
                 }
                 _ => continue,
             }
         }
 
-        self.rp.encode(&RespKind::Array(entries))
+        self.rp.encode(&entries.to_resp_value())
+    }
+
+    fn xread(&mut self, args: CommandArguments) -> CommandReturn {
+        let key = match args.get(0) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+
+        let id = match args.get(1) {
+            Some(RespKind::BulkString(val)) => val,
+            _ => return Ok(()),
+        };
+
+        let store = self.ctx.inner.store.read();
+        let stream_entry = store.get_stream_entry(key, id);
+        match stream_entry {
+            Some(map) => {
+                let entries: Vec<_> = map
+                    .iter()
+                    .flat_map(|(k, v)| vec![StoreEntryKind::String(k.clone()), v.clone()])
+                    .collect();
+                self.rp.encode(&entries.to_resp_value())
+            }
+            None => self.rp.encode(&resp_narr!()),
+        }
     }
 }
