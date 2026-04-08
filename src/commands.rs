@@ -481,20 +481,27 @@ where
             None => return self.rp.encode(&resp_narr!()),
         };
 
-        let mut entries: Vec<Vec<StoreEntryKind>> = vec![];
-        for (_, v) in stream.range::<str, _>((Included(id), Included("?"))) {
+        let mut payload = vec![RespKind::BulkString(key.clone())];
+        let mut entries = vec![];
+        for (k, v) in stream.range::<str, _>((Included(id), Included("?"))) {
             match v {
                 StoreEntryKind::HashMap(map) => {
-                    entries.push(
-                        map.iter()
-                            .flat_map(|(k, v)| vec![StoreEntryKind::String(k.clone()), v.clone()])
-                            .collect(),
-                    );
+                    entries.push(RespKind::Array(vec![
+                        RespKind::BulkString(k.clone()),
+                        RespKind::Array(
+                            map.iter()
+                                .flat_map(|(k, v)| {
+                                    vec![RespKind::BulkString(k.clone()), v.to_resp_value()]
+                                })
+                                .collect(),
+                        ),
+                    ]));
                 }
                 _ => continue,
             }
         }
 
-        self.rp.encode(&entries.to_resp_value())
+        payload.push(RespKind::Array(entries));
+        self.rp.encode(&RespKind::Array(payload))
     }
 }
