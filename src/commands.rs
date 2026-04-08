@@ -437,26 +437,10 @@ where
         }
 
         let store = self.ctx.inner.store.read();
-        let stream = match store.get_stream(key) {
-            Some(stream) => stream,
-            None => return self.rp.encode(&resp_narr!()),
-        };
-
-        let mut entries: Vec<Vec<StoreEntryKind>> = vec![];
-        for (_, v) in stream.range::<str, _>((Included(start_id), Included(end_id))) {
-            match v {
-                StoreEntryKind::HashMap(map) => {
-                    entries.push(
-                        map.iter()
-                            .flat_map(|(k, v)| vec![StoreEntryKind::String(k.clone()), v.clone()])
-                            .collect(),
-                    );
-                }
-                _ => continue,
-            }
+        match store.search_stream_entries(key, start_id, end_id) {
+            Some(results) => self.rp.encode(&results.to_resp_value()),
+            None => self.rp.encode(&resp_narr!()),
         }
-
-        self.rp.encode(&entries.to_resp_value())
     }
 
     fn xread(&mut self, args: CommandArguments) -> CommandReturn {
@@ -465,43 +449,37 @@ where
             _ => return Ok(()),
         };
 
-        let key = match args.get(1) {
-            Some(RespKind::BulkString(val)) => val,
-            _ => return Ok(()),
-        };
-
-        let id = match args.get(2) {
-            Some(RespKind::BulkString(val)) => val.as_str(),
-            _ => return Ok(()),
-        };
-
-        let store = self.ctx.inner.store.read();
-        let stream = match store.get_stream(key) {
-            Some(stream) => stream,
-            None => return self.rp.encode(&resp_narr!()),
-        };
-
-        let mut payload = vec![RespKind::BulkString(key.clone())];
-        let mut entries = vec![];
-        for (k, v) in stream.range::<str, _>((Included(id), Included("?"))) {
-            match v {
-                StoreEntryKind::HashMap(map) => {
-                    entries.push(RespKind::Array(vec![
-                        RespKind::BulkString(k.clone()),
-                        RespKind::Array(
-                            map.iter()
-                                .flat_map(|(k, v)| {
-                                    vec![RespKind::BulkString(k.clone()), v.to_resp_value()]
-                                })
-                                .collect(),
-                        ),
-                    ]));
-                }
-                _ => continue,
-            }
+        let args = &args[1..].to_vec();
+        if args.len() % 2 != 0 {
+            return Ok(());
         }
 
-        payload.push(RespKind::Array(entries));
-        self.rp.encode(&RespKind::Array(payload))
+        let mut key_id_pairs = vec![];
+        for i in 0..args.len() / 2 {
+            let key = match args.get(i) {
+                Some(RespKind::BulkString(val)) => val.as_str(),
+                _ => return Ok(()),
+            };
+
+            let id = match args.get(i + args.len() / 2) {
+                Some(RespKind::BulkString(val)) => val.as_str(),
+                _ => return Ok(()),
+            };
+
+            key_id_pairs.push((key, id));
+        }
+
+        let store = self.ctx.inner.store.read();
+
+        let mut stream_entries = vec![];
+        for (key, id) in key_id_pairs {
+            let stream_entry = match store.get_stream_entry(key, id) {
+                Some(stream) => stream,
+                None => continue,
+            };
+            stream_entries.push(store.stream_entry_to_store_entry(key, stream_entry))
+        }
+
+        self.rp.encode(&stream_entries.to_resp_value())
     }
 }

@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    ops::Bound::Included,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -95,7 +96,7 @@ impl Store {
         }
     }
 
-    pub fn get(&self, key: &String) -> Option<&StoreEntryKind> {
+    pub fn get(&self, key: &str) -> Option<&StoreEntryKind> {
         self.hash_map.get(key).and_then(|entry| {
             if !entry.is_expired() {
                 Some(entry.value())
@@ -105,7 +106,7 @@ impl Store {
         })
     }
 
-    pub fn get_mut(&mut self, key: &String) -> Option<&mut StoreEntryKind> {
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut StoreEntryKind> {
         self.hash_map.get_mut(key).and_then(|entry| {
             if !entry.is_expired() {
                 Some(entry.value_mut())
@@ -115,7 +116,7 @@ impl Store {
         })
     }
 
-    pub fn remove(&mut self, key: &String) {
+    pub fn remove(&mut self, key: &str) {
         self.hash_map.remove(key);
     }
 
@@ -124,7 +125,7 @@ impl Store {
         self.hash_map.insert(key, entry);
     }
 
-    pub fn get_string(&self, key: &String) -> Option<&String> {
+    pub fn get_string(&self, key: &str) -> Option<&String> {
         self.get(key).and_then(|kind| match kind {
             StoreEntryKind::String(val) => Some(val),
             _ => None,
@@ -132,7 +133,7 @@ impl Store {
     }
 
     pub fn create_list_mut(&mut self, key: &String) -> &mut Vec<String> {
-        let entry = StoreEntry::new(StoreEntryKind::Vector(vec![]), Duration::MAX);
+        let entry = StoreEntry::new(StoreEntryKind::List(vec![]), Duration::MAX);
         self.hash_map.insert(key.clone(), entry);
         match self.get_list_mut(key) {
             Some(list) => list,
@@ -151,16 +152,16 @@ impl Store {
         }
     }
 
-    pub fn get_list(&self, key: &String) -> Option<&Vec<String>> {
+    pub fn get_list(&self, key: &str) -> Option<&Vec<String>> {
         self.get(key).and_then(|kind| match kind {
-            StoreEntryKind::Vector(list) => Some(list),
+            StoreEntryKind::List(list) => Some(list),
             _ => None,
         })
     }
 
-    pub fn get_list_mut(&mut self, key: &String) -> Option<&mut Vec<String>> {
+    pub fn get_list_mut(&mut self, key: &str) -> Option<&mut Vec<String>> {
         self.get_mut(key).and_then(|kind| match kind {
-            StoreEntryKind::Vector(list) => Some(list),
+            StoreEntryKind::List(list) => Some(list),
             _ => None,
         })
     }
@@ -188,17 +189,14 @@ impl Store {
         }
     }
 
-    pub fn get_stream(&self, key: &String) -> Option<&BTreeMap<String, StoreEntryKind>> {
+    pub fn get_stream(&self, key: &str) -> Option<&BTreeMap<String, StoreEntryKind>> {
         self.get(key).and_then(|kind| match kind {
             StoreEntryKind::BTreeMap(stream) => Some(stream),
             _ => None,
         })
     }
 
-    pub fn get_stream_mut(
-        &mut self,
-        key: &String,
-    ) -> Option<&mut BTreeMap<String, StoreEntryKind>> {
+    pub fn get_stream_mut(&mut self, key: &str) -> Option<&mut BTreeMap<String, StoreEntryKind>> {
         self.get_mut(key).and_then(|kind| match kind {
             StoreEntryKind::BTreeMap(stream) => Some(stream),
             _ => None,
@@ -232,8 +230,8 @@ impl Store {
 
     pub fn get_stream_entry(
         &self,
-        key: &String,
-        id: &String,
+        key: &str,
+        id: &str,
     ) -> Option<&HashMap<String, StoreEntryKind>> {
         let stream = self.get_stream(key)?;
         stream.get(id).and_then(|entry| match entry {
@@ -244,14 +242,65 @@ impl Store {
 
     pub fn get_stream_entry_mut(
         &mut self,
-        key: &String,
-        id: &String,
+        key: &str,
+        id: &str,
     ) -> Option<&mut HashMap<String, StoreEntryKind>> {
         let stream = self.get_stream_mut(key)?;
         stream.get_mut(id).and_then(|entry| match entry {
             StoreEntryKind::HashMap(map) => Some(map),
             _ => None,
         })
+    }
+
+    pub fn search_stream_entries(
+        &self,
+        key: &str,
+        start_id: &str,
+        end_id: &str,
+    ) -> Option<StoreEntryKind> {
+        let stream = self.get_stream(key)?;
+        let results: Vec<_> = stream
+            .range::<str, _>((Included(start_id), Included(end_id)))
+            .filter_map(|(k, v)| match v {
+                StoreEntryKind::HashMap(map) => Some(self.stream_entry_to_store_entry(k, map)),
+                _ => None,
+            })
+            .collect();
+        Some(StoreEntryKind::Vector(results))
+    }
+
+    pub fn stream_to_store_entry(
+        &self,
+        key: &str,
+        stream: &BTreeMap<String, StoreEntryKind>,
+    ) -> StoreEntryKind {
+        let entries = stream
+            .iter()
+            .filter_map(|(k, v)| match v {
+                StoreEntryKind::HashMap(map) => Some(self.stream_entry_to_store_entry(k, map)),
+                _ => None,
+            })
+            .collect();
+        let data = vec![
+            StoreEntryKind::String(key.to_string()),
+            StoreEntryKind::Vector(entries),
+        ];
+        StoreEntryKind::Vector(data)
+    }
+
+    pub fn stream_entry_to_store_entry(
+        &self,
+        id: &str,
+        stream_entry: &HashMap<String, StoreEntryKind>,
+    ) -> StoreEntryKind {
+        let mut data = vec![StoreEntryKind::String(id.to_string())];
+        data.push(StoreEntryKind::Vector(
+            stream_entry
+                .iter()
+                .flat_map(|(k, v)| vec![StoreEntryKind::String(k.clone()), v.clone()])
+                .collect(),
+        ));
+        StoreEntryKind::Vector(data)
     }
 }
 
@@ -306,7 +355,8 @@ pub enum StoreEntryKind {
     Integer(i64),
     Double(f64),
     Set(HashSet<String>),
-    Vector(Vec<String>),
+    List(Vec<String>),
+    Vector(Vec<StoreEntryKind>),
     HashMap(HashMap<String, StoreEntryKind>),
     BTreeMap(BTreeMap<String, StoreEntryKind>),
 }
@@ -318,6 +368,7 @@ impl ToRespValue for StoreEntryKind {
             Self::Integer(int) => int.to_resp_value(),
             Self::Double(double) => double.to_resp_value(),
             Self::Set(set) => set.to_resp_value(),
+            Self::List(list) => list.to_resp_value(),
             Self::Vector(vec) => vec.to_resp_value(),
             Self::HashMap(hash_map) => hash_map.to_resp_value(),
             Self::BTreeMap(btree_map) => btree_map.to_resp_value(),
