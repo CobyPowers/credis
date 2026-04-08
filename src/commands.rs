@@ -432,9 +432,8 @@ where
             _ => return Ok(()),
         };
 
-        // '=' comes after '9' in the ascii table which forces the map to search until the end
         if end_id == "+" {
-            end_id = "=";
+            end_id = "?";
         }
 
         let store = self.ctx.inner.store.read();
@@ -467,21 +466,30 @@ where
         };
 
         let id = match args.get(1) {
-            Some(RespKind::BulkString(val)) => val,
+            Some(RespKind::BulkString(val)) => val.as_str(),
             _ => return Ok(()),
         };
 
         let store = self.ctx.inner.store.read();
-        let stream_entry = store.get_stream_entry(key, id);
-        match stream_entry {
-            Some(map) => {
-                let entries: Vec<_> = map
-                    .iter()
-                    .flat_map(|(k, v)| vec![StoreEntryKind::String(k.clone()), v.clone()])
-                    .collect();
-                self.rp.encode(&entries.to_resp_value())
+        let stream = match store.get_stream(key) {
+            Some(stream) => stream,
+            None => return self.rp.encode(&resp_narr!()),
+        };
+
+        let mut entries: Vec<Vec<StoreEntryKind>> = vec![];
+        for (_, v) in stream.range::<str, _>((Included(id), Included("?"))) {
+            match v {
+                StoreEntryKind::HashMap(map) => {
+                    entries.push(
+                        map.iter()
+                            .flat_map(|(k, v)| vec![StoreEntryKind::String(k.clone()), v.clone()])
+                            .collect(),
+                    );
+                }
+                _ => continue,
             }
-            None => self.rp.encode(&resp_narr!()),
         }
+
+        self.rp.encode(&entries.to_resp_value())
     }
 }
