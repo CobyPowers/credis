@@ -138,7 +138,7 @@ where
         };
 
         let store = self.ctx.inner.store.read();
-        match store.get_string(&key) {
+        match store.get(&key) {
             Some(val) => self.rp.encode(&val.to_resp_value()),
             None => self.rp.encode(&resp_nbstr!()),
         }
