@@ -146,7 +146,7 @@ where
 
     fn set(&mut self, args: CommandArguments) -> CommandReturn {
         let (key, value) = match (args.get(0), args.get(1)) {
-            (Some(RespKind::BulkString(key)), Some(val)) => (key, val),
+            (Some(RespKind::BulkString(key)), Some(RespKind::BulkString(val))) => (key, val),
             _ => return Ok(()),
         };
 
@@ -167,7 +167,14 @@ where
         }
 
         let mut store = self.ctx.inner.store.write();
-        store.insert_resp(key.clone(), value.clone(), expiry);
+        store.insert(
+            key.clone(),
+            match value.parse::<i64>() {
+                Ok(val) => StoreEntryKind::Integer(val),
+                Err(_) => StoreEntryKind::String(value.clone()),
+            },
+            expiry,
+        );
         self.rp.encode(&resp_sstr!("OK"))
     }
 
@@ -530,7 +537,7 @@ where
             }
             Some(_) => self
                 .rp
-                .encode(&resp_berr!("ERR value is not an integer or out of range")),
+                .encode(&resp_serr!("ERR value is not an integer or out of range")),
             None => {
                 store.insert_integer(key.to_string(), 1);
                 self.rp.encode(&resp_int!(1))

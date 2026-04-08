@@ -120,22 +120,12 @@ impl Store {
         self.hash_map.remove(key);
     }
 
-    pub fn insert_resp(&mut self, key: String, value: RespKind, expiry: Duration) {
-        let entry = StoreEntry::new(
-            match value {
-                RespKind::BulkString(val) => StoreEntryKind::String(val),
-                RespKind::Integer(val) => StoreEntryKind::Integer(val),
-                RespKind::Double(val) => StoreEntryKind::Double(val),
-                _ => todo!(),
-            },
-            expiry,
-        );
-        self.hash_map.insert(key, entry);
+    pub fn insert(&mut self, key: String, value: StoreEntryKind, expiry: Duration) {
+        self.hash_map.insert(key, StoreEntry::new(value, expiry));
     }
 
     pub fn insert_string(&mut self, key: String, value: String, expiry: Duration) {
-        let entry = StoreEntry::new(StoreEntryKind::String(value), expiry);
-        self.hash_map.insert(key, entry);
+        self.insert(key, StoreEntryKind::String(value), expiry);
     }
 
     pub fn get_string(&self, key: &str) -> Option<&String> {
@@ -146,13 +136,11 @@ impl Store {
     }
 
     pub fn insert_integer(&mut self, key: String, value: i64) {
-        let entry = StoreEntry::new(StoreEntryKind::Integer(value), Duration::MAX);
-        self.hash_map.insert(key, entry);
+        self.insert(key, StoreEntryKind::Integer(value), Duration::MAX);
     }
 
     pub fn create_list_mut(&mut self, key: &String) -> &mut Vec<String> {
-        let entry = StoreEntry::new(StoreEntryKind::List(vec![]), Duration::MAX);
-        self.hash_map.insert(key.clone(), entry);
+        self.insert(key.clone(), StoreEntryKind::List(vec![]), Duration::MAX);
         match self.get_list_mut(key) {
             Some(list) => list,
             _ => unreachable!(),
@@ -185,8 +173,11 @@ impl Store {
     }
 
     pub fn create_stream_mut(&mut self, key: &String) -> &mut BTreeMap<String, StoreEntryKind> {
-        let entry = StoreEntry::new(StoreEntryKind::BTreeMap(BTreeMap::new()), Duration::MAX);
-        self.hash_map.insert(key.clone(), entry);
+        self.insert(
+            key.clone(),
+            StoreEntryKind::BTreeMap(BTreeMap::new()),
+            Duration::MAX,
+        );
         match self.get_stream_mut(key) {
             Some(map) => map,
             _ => unreachable!(),
