@@ -422,12 +422,12 @@ where
 
         if mode == "block" {
             let timeout = match args.get(1) {
-                Some(RespKind::BulkString(val)) => val.parse::<f64>().unwrap_or(0f64),
-                _ => 0f64,
+                Some(RespKind::BulkString(val)) => val.parse::<u64>().unwrap_or(0),
+                _ => 0,
             };
 
-            let timeout = if timeout > 0f64 {
-                Duration::from_secs_f64(timeout)
+            let timeout = if timeout > 0 {
+                Duration::from_millis(timeout)
             } else {
                 Duration::MAX
             };
