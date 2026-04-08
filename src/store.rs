@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    ops::Bound::Included,
+    ops::{Bound::Included, RangeBounds},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -252,15 +252,13 @@ impl Store {
         })
     }
 
-    pub fn search_stream_entries(
-        &self,
-        key: &str,
-        start_id: &str,
-        end_id: &str,
-    ) -> Option<StoreEntryKind> {
+    pub fn search_stream_entries<T>(&self, key: &str, range: T) -> Option<StoreEntryKind>
+    where
+        T: RangeBounds<str>,
+    {
         let stream = self.get_stream(key)?;
         let results: Vec<_> = stream
-            .range::<str, _>((Included(start_id), Included(end_id)))
+            .range::<str, _>(range)
             .filter_map(|(k, v)| match v {
                 StoreEntryKind::HashMap(map) => Some(self.stream_entry_to_store_entry(k, map)),
                 _ => None,

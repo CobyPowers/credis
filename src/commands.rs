@@ -1,5 +1,6 @@
 use std::{
     io::{Read, Write},
+    ops::Bound::{Excluded, Included},
     sync::Arc,
     time::Duration,
 };
@@ -407,7 +408,7 @@ where
         }
 
         let store = self.ctx.inner.store.read();
-        match store.search_stream_entries(key, start_id, end_id) {
+        match store.search_stream_entries(key, (Included(start_id), Included(end_id))) {
             Some(results) => self.rp.encode(&results.to_resp_value()),
             None => self.rp.encode(&resp_narr!()),
         }
@@ -459,7 +460,7 @@ where
 
         let mut payload = vec![];
         for (key, id) in key_id_pairs {
-            let results = match store.search_stream_entries(key, id, "?") {
+            let results = match store.search_stream_entries(key, (Included(id), Included("?"))) {
                 Some(results) => results,
                 None => StoreEntryKind::Vector(vec![]),
             };
@@ -482,7 +483,7 @@ where
 
         let mut store = self.ctx.inner.store.read();
         loop {
-            return match store.search_stream_entries(key, id, "?") {
+            return match store.search_stream_entries(key, (Excluded(id), Included("?"))) {
                 Some(results) => {
                     let payload = vec![vec![StoreEntryKind::String(key.to_string()), results]];
                     self.rp.encode(&payload.to_resp_value())
