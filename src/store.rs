@@ -377,7 +377,7 @@ impl ToRespValue for StoreEntryKind {
     fn to_resp_value(&self) -> RespKind {
         match self {
             Self::String(strg) => strg.to_resp_value(),
-            Self::Integer(int) => int.to_resp_value(),
+            Self::Integer(int) => int.to_string().to_resp_value(),
             Self::Double(double) => double.to_resp_value(),
             Self::Set(set) => set.to_resp_value(),
             Self::List(list) => list.to_resp_value(),
