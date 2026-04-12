@@ -144,6 +144,13 @@ impl Server {
                     resp_bstr!("psync2")
                 ]))
                 .unwrap();
+
+                rp.encode(&resp_arr!(vec![
+                    resp_bstr!("PSYNC"),
+                    resp_bstr!("?"),
+                    resp_bstr!("-1")
+                ]))
+                .unwrap();
             }
 
             loop {
