@@ -471,6 +471,8 @@ where
             return Ok(resp_serr!("ERR EXEC without MULTI"));
         }
 
+        self.multi_mode = false;
+
         let cmds: Vec<_> = self.cmd_queue.drain(..).collect();
         let outputs: Vec<_> = cmds
             .into_iter()
