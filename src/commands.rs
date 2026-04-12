@@ -123,6 +123,7 @@ where
             "multi" => self.multi(),
             "exec" => self.exec(),
             "discard" => self.discard(),
+            "info" => self.info(),
             _ => Err(CommandError::InvalidCommand(cmd)),
         }
     }
@@ -490,5 +491,9 @@ where
         self.multi_mode = false;
         self.cmd_queue.clear();
         Ok(resp_sstr!("OK"))
+    }
+
+    fn info(&mut self) -> CommandResult {
+        Ok(resp_bstr!("role:master"))
     }
 }
