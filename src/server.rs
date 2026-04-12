@@ -11,10 +11,27 @@ use crate::{
     resp::RespParser,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Default)]
 pub enum ReplicationRole {
+    #[default]
     Master,
     Slave(String), // Master host
+}
+
+pub struct ReplicationData {
+    pub role: ReplicationRole,
+    pub id: String,
+    pub offset: usize,
+}
+
+impl Default for ReplicationData {
+    fn default() -> Self {
+        Self {
+            role: Default::default(),
+            id: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
+            offset: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -29,7 +46,6 @@ pub struct ServerArgs {
 pub struct Server {
     pub host: &'static str,
     pub port: u16,
-    pub role: ReplicationRole,
     ctx: SharedCommandContext,
 }
 
@@ -37,17 +53,21 @@ impl Server {
     pub fn new() -> Self {
         let args = ServerArgs::parse();
 
-        let role = args
-            .replica_host
-            .and_then(|x| Some(ReplicationRole::Slave(x)))
-            .or_else(|| Some(ReplicationRole::Master))
-            .unwrap();
+        let role = match args.replica_host {
+            Some(x) => ReplicationRole::Slave(x),
+            None => ReplicationRole::Master,
+        };
+
+        let ctx = SharedCommandContext::default();
+        {
+            let mut repl_data = ctx.inner.repl_data.write();
+            repl_data.role = role;
+        }
 
         Self {
             host: "127.0.0.1",
             port: args.port,
-            role: role,
-            ctx: SharedCommandContext::default(),
+            ctx: ctx,
         }
     }
 
@@ -59,11 +79,9 @@ impl Server {
 
     pub fn handle_stream(&self, stream: TcpStream) {
         let ctx = self.ctx.clone();
-        let role = self.role.clone();
-
         thread::spawn(move || {
             let rp = RespParser::new(BufReader::new(&stream), BufWriter::new(&stream));
-            let mut handler = CommandHandler::new(rp, ctx, role);
+            let mut handler = CommandHandler::new(rp, ctx);
 
             loop {
                 match handler.parse() {

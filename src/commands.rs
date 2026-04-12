@@ -15,7 +15,7 @@ use crate::{
     arguments::{ArgumentError, ArgumentParser},
     condvar::{CondvarRead, CondvarWrite},
     resp::{RespError, RespKind, RespParser, ToRespValue},
-    server::ReplicationRole,
+    server::{ReplicationData, ReplicationRole},
     store::{Store, StoreEntryKind, StreamIdError},
 };
 
@@ -43,21 +43,14 @@ impl From<ArgumentError> for CommandError {
 #[derive(Default)]
 pub struct CommandContextInner {
     pub store: RwLock<Store>,
+    pub repl_data: RwLock<ReplicationData>,
     pub list_cv: CondvarWrite,
     pub stream_cv: CondvarRead,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SharedCommandContext {
     pub inner: Arc<CommandContextInner>,
-}
-
-impl Clone for SharedCommandContext {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
-    }
 }
 
 pub struct CommandHandler<R, W>
@@ -67,7 +60,6 @@ where
 {
     rp: RespParser<R, W>,
     ctx: SharedCommandContext,
-    role: ReplicationRole,
     cmd_queue: VecDeque<(String, ArgumentParser)>,
     multi_mode: bool,
 }
@@ -77,11 +69,10 @@ where
     R: Read,
     W: Write,
 {
-    pub fn new(rp: RespParser<R, W>, ctx: SharedCommandContext, role: ReplicationRole) -> Self {
+    pub fn new(rp: RespParser<R, W>, ctx: SharedCommandContext) -> Self {
         Self {
             rp,
             ctx,
-            role,
             cmd_queue: VecDeque::new(),
             multi_mode: false,
         }
@@ -126,7 +117,7 @@ where
             "multi" => self.multi(),
             "exec" => self.exec(),
             "discard" => self.discard(),
-            "info" => self.info(),
+            "info" => self.info(args),
             _ => Err(CommandError::InvalidCommand(cmd)),
         }
     }
@@ -496,10 +487,23 @@ where
         Ok(resp_sstr!("OK"))
     }
 
-    fn info(&self) -> CommandResult {
-        Ok(match self.role {
-            ReplicationRole::Master => resp_bstr!("role:master"),
-            ReplicationRole::Slave(_) => resp_bstr!("role:slave"),
-        })
+    fn info(&self, mut args: ArgumentParser) -> CommandResult {
+        let option = args.consume_string()?;
+
+        let repl_data = self.ctx.inner.repl_data.read();
+
+        let role = match repl_data.role {
+            ReplicationRole::Master => "master",
+            ReplicationRole::Slave(_) => "slave",
+        };
+
+        if option == "replication" {
+            Ok(resp_bstr!(format!(
+                "role:{}\nmaster_replid:{}\nmaster_repl_offset:{}",
+                role, repl_data.id, repl_data.offset
+            )))
+        } else {
+            Ok(resp_nbstr!())
+        }
     }
 }
