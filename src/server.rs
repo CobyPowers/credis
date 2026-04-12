@@ -52,7 +52,9 @@ impl Server {
     }
 
     pub fn listen(&self) -> io::Result<TcpListener> {
-        TcpListener::bind((self.host, self.port))
+        let listener = TcpListener::bind((self.host, self.port));
+        println!("Listening on {}:{}", self.host, self.port);
+        listener
     }
 
     pub fn handle_stream(&self, stream: TcpStream) {
