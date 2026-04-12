@@ -145,6 +145,10 @@ impl Server {
                 ]))
                 .unwrap();
             }
+
+            loop {
+                rp.decode().unwrap();
+            }
         });
     }
 
