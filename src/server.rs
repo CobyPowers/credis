@@ -57,9 +57,11 @@ impl Server {
 
     pub fn handle_stream(&self, stream: TcpStream) {
         let ctx = self.ctx.clone();
+        let role = self.role.clone();
+
         thread::spawn(move || {
             let rp = RespParser::new(BufReader::new(&stream), BufWriter::new(&stream));
-            let mut handler = CommandHandler::new(rp, ctx, role.clone());
+            let mut handler = CommandHandler::new(rp, ctx, role);
 
             loop {
                 match handler.parse() {
