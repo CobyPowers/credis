@@ -110,6 +110,7 @@ impl<'a> CommandHandler<'a> {
             "discard" => self.discard(),
             "info" => self.info(args),
             "replconf" => self.replconf(args),
+            "psync" => self.psync(args),
             _ => Err(CommandError::InvalidCommand(cmd)),
         }
     }
@@ -501,5 +502,10 @@ impl<'a> CommandHandler<'a> {
 
     fn replconf(&self, _: ArgumentParser) -> CommandResult {
         Ok(resp_sstr!("OK"))
+    }
+
+    fn psync(&self, _: ArgumentParser) -> CommandResult {
+        let repl_data = self.ctx.inner.repl_data.read();
+        Ok(resp_sstr!(format!("FULLRESYNC {} 0", repl_data.id)))
     }
 }
