@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    ops::{Bound::Included, RangeBounds},
+    ops::RangeBounds,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -376,9 +376,10 @@ pub enum StoreEntryKind {
 impl ToRespValue for StoreEntryKind {
     fn to_resp_value(&self) -> RespKind {
         match self {
+            // Some types are sent back as bulk strings even if the original type isn't a string
             Self::String(strg) => strg.to_resp_value(),
             Self::Integer(int) => int.to_string().to_resp_value(),
-            Self::Double(double) => double.to_resp_value(),
+            Self::Double(double) => double.to_string().to_resp_value(),
             Self::Set(set) => set.to_resp_value(),
             Self::List(list) => list.to_resp_value(),
             Self::Vector(vec) => vec.to_resp_value(),

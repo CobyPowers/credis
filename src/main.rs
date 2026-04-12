@@ -1,5 +1,6 @@
 #[macro_use]
 mod resp;
+mod arguments;
 mod commands;
 mod condvar;
 mod store;
@@ -12,7 +13,7 @@ use std::{
 };
 
 use crate::{
-    commands::{CommandHandler, SharedCommandContext},
+    commands::{CommandError, CommandHandler, SharedCommandContext},
     resp::RespParser,
 };
 
@@ -45,8 +46,17 @@ fn main() {
                     let mut handler = CommandHandler::new(rp, ctx);
 
                     loop {
-                        if let Err(e) = handler.parse() {
-                            eprintln!("Command handler encountered an error: {:?}", e);
+                        match handler.parse() {
+                            Ok(_) => {}
+                            Err(CommandError::ParseError(err)) => {
+                                eprintln!("Error: Failed to parse input: `{:?}`", err);
+                            }
+                            Err(CommandError::ArgumentError(err)) => {
+                                eprintln!("Error: Expected argument `{:?}`", err);
+                            }
+                            Err(CommandError::InvalidCommand(cmd)) => {
+                                eprintln!("Error: Received invalid command `{cmd}`");
+                            }
                         }
                     }
                 });
