@@ -138,12 +138,16 @@ impl Server {
                 ]))
                 .unwrap();
 
+                rp.decode().unwrap();
+
                 rp.encode(&resp_arr!(vec![
                     resp_bstr!("REPLCONF"),
                     resp_bstr!("capa"),
                     resp_bstr!("psync2")
                 ]))
                 .unwrap();
+
+                rp.decode().unwrap();
 
                 rp.encode(&resp_arr!(vec![
                     resp_bstr!("PSYNC"),
