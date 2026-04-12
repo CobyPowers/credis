@@ -1,12 +1,9 @@
 [package]
-name = "codecrafters-redis"
+name = "credis"
 version = "0.1.0"
-authors = ["Codecrafters <hello@codecrafters.io>"]
+authors = ["Coby Powers <mail@cobypowers.com>"]
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.59"                                   # error handling
-bytes = "1.3.0"                                     # helps manage buffers
+clap = { version = "4.6.0", features = ["derive"] }
 parking_lot = "0.12.5"
-thiserror = "1.0.32"                                # error handling
-tokio = { version = "1.23.0", features = ["full"] } # async networking

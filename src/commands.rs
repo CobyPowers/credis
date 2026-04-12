@@ -15,6 +15,7 @@ use crate::{
     arguments::{ArgumentError, ArgumentParser},
     condvar::{CondvarRead, CondvarWrite},
     resp::{RespError, RespKind, RespParser, ToRespValue},
+    server::ReplicationRole,
     store::{Store, StoreEntryKind, StreamIdError},
 };
 
@@ -66,6 +67,7 @@ where
 {
     rp: RespParser<R, W>,
     ctx: SharedCommandContext,
+    role: ReplicationRole,
     cmd_queue: VecDeque<(String, ArgumentParser)>,
     multi_mode: bool,
 }
@@ -75,10 +77,11 @@ where
     R: Read,
     W: Write,
 {
-    pub fn new(rp: RespParser<R, W>, ctx: SharedCommandContext) -> Self {
+    pub fn new(rp: RespParser<R, W>, ctx: SharedCommandContext, role: ReplicationRole) -> Self {
         Self {
             rp,
             ctx,
+            role,
             cmd_queue: VecDeque::new(),
             multi_mode: false,
         }
@@ -493,7 +496,10 @@ where
         Ok(resp_sstr!("OK"))
     }
 
-    fn info(&mut self) -> CommandResult {
-        Ok(resp_bstr!("role:master"))
+    fn info(&self) -> CommandResult {
+        Ok(match self.role {
+            ReplicationRole::Master => resp_bstr!("role:master"),
+            ReplicationRole::Slave(_) => resp_bstr!("role:slave"),
+        })
     }
 }
