@@ -6,6 +6,7 @@ mod condvar;
 mod store;
 
 use std::{
+    env,
     io::{BufReader, BufWriter},
     net::TcpListener,
     thread,
@@ -20,8 +21,21 @@ use crate::{
 const STORE_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-    println!("Listening on 127.0.0.1:6379");
+    let mut port = 6379;
+
+    let args: Vec<_> = env::args().collect();
+    let first_arg = args.get(1);
+    let second_arg = args.get(2);
+    if first_arg.is_some_and(|x| x == "--port" || x == "-p") {
+        if let Some(port_str) = second_arg
+            && let Ok(port_val) = port_str.parse()
+        {
+            port = port_val;
+        }
+    }
+
+    let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
+    println!("Listening on 127.0.0.1:{}", port);
 
     let ctx = SharedCommandContext::default();
 
