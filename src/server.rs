@@ -130,7 +130,7 @@ impl Server {
             rp.encode(&resp_arr!(vec![resp_bstr!("PING")])).unwrap();
 
             let res = rp.decode().unwrap();
-            if res == RespKind::SimpleString("PING".to_string()) {
+            if res == RespKind::SimpleString("PONG".to_string()) {
                 rp.encode(&resp_arr!(vec![
                     resp_bstr!("REPLCONF"),
                     resp_bstr!("listening-port"),
