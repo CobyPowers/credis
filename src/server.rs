@@ -71,16 +71,39 @@ impl Server {
         }
     }
 
+    pub fn is_master(&self) -> bool {
+        let repl_data = self.ctx.inner.repl_data.read();
+        match &repl_data.role {
+            ReplicationRole::Master => true,
+            ReplicationRole::Slave(_) => false,
+        }
+    }
+
+    pub fn get_repl_addr(&self) -> Option<String> {
+        let repl_data = self.ctx.inner.repl_data.read();
+        match &repl_data.role {
+            ReplicationRole::Master => None,
+            ReplicationRole::Slave(x) => Some(x.clone()),
+        }
+    }
+
     pub fn listen(&self) -> io::Result<TcpListener> {
         let listener = TcpListener::bind((self.host, self.port));
         println!("Listening on {}:{}", self.host, self.port);
         listener
     }
 
+    pub fn connect_replica(&self) -> io::Result<TcpStream> {
+        match self.get_repl_addr() {
+            Some(addr) => TcpStream::connect(addr),
+            None => panic!("Attempted to connect to replica as master"),
+        }
+    }
+
     pub fn handle_stream(&self, stream: TcpStream) {
         let ctx = self.ctx.clone();
         thread::spawn(move || {
-            let rp = RespParser::new(BufReader::new(&stream), BufWriter::new(&stream));
+            let rp = RespParser::new(&stream);
             let mut handler = CommandHandler::new(rp, ctx);
 
             loop {

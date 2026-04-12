@@ -8,24 +8,22 @@ mod store;
 
 use std::{thread, time::Duration};
 
-use clap::Parser;
-
-use crate::server::Server;
+use crate::{
+    resp::{RespKind, RespParser},
+    server::Server,
+};
 
 const STORE_SWEEP_INTERVAL: Duration = Duration::from_secs(45);
-
-#[derive(Debug, Parser)]
-struct RedisArgs {
-    #[arg(short, long, default_value_t = 6379)]
-    port: u16,
-
-    #[arg(long = "replicaof")]
-    replica_host: Option<String>,
-}
 
 fn main() {
     let server = Server::new();
     let listener = server.listen().unwrap();
+
+    if !server.is_master() {
+        let stream = server.connect_replica().unwrap();
+        let mut rp = RespParser::new(&stream);
+        rp.encode(&resp_arr!(vec![resp_bstr!("PING")])).unwrap();
+    }
 
     // Periodically sweep store and remove expired entries
     let ctx = server.clone_ctx();

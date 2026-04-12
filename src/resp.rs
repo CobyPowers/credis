@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::{self, Display},
     io::{BufReader, BufWriter, Read, Write},
+    net::TcpStream,
 };
 
 const MAX_READ_SIZE: usize = 1024;
@@ -151,22 +152,17 @@ pub enum RespError {
     MissingTerminator,
 }
 
-pub struct RespParser<R, W>
-where
-    R: Read,
-    W: Write,
-{
-    reader: BufReader<R>,
-    writer: BufWriter<W>,
+pub struct RespParser<'a> {
+    reader: BufReader<&'a TcpStream>,
+    writer: BufWriter<&'a TcpStream>,
 }
 
-impl<R, W> RespParser<R, W>
-where
-    R: Read,
-    W: Write,
-{
-    pub fn new(reader: BufReader<R>, writer: BufWriter<W>) -> Self {
-        Self { reader, writer }
+impl<'a> RespParser<'a> {
+    pub fn new(stream: &'a TcpStream) -> Self {
+        Self {
+            reader: BufReader::new(stream),
+            writer: BufWriter::new(stream),
+        }
     }
 
     pub fn decode(&mut self) -> Result<RespKind, RespError> {

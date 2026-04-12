@@ -1,6 +1,5 @@
 use std::{
     collections::VecDeque,
-    io::{Read, Write},
     ops::{
         AddAssign,
         Bound::{Excluded, Included},
@@ -53,23 +52,15 @@ pub struct SharedCommandContext {
     pub inner: Arc<CommandContextInner>,
 }
 
-pub struct CommandHandler<R, W>
-where
-    R: Read,
-    W: Write,
-{
-    rp: RespParser<R, W>,
+pub struct CommandHandler<'a> {
+    rp: RespParser<'a>,
     ctx: SharedCommandContext,
     cmd_queue: VecDeque<(String, ArgumentParser)>,
     multi_mode: bool,
 }
 
-impl<R, W> CommandHandler<R, W>
-where
-    R: Read,
-    W: Write,
-{
-    pub fn new(rp: RespParser<R, W>, ctx: SharedCommandContext) -> Self {
+impl<'a> CommandHandler<'a> {
+    pub fn new(rp: RespParser<'a>, ctx: SharedCommandContext) -> Self {
         Self {
             rp,
             ctx,
