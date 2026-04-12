@@ -1,13 +1,9 @@
 [package]
-name = "credis"
+name = "codecrafters-redis"
 version = "0.1.0"
 authors = ["Coby Powers <mail@cobypowers.com>"]
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.102"
-bytes = "1.11.1"
 clap = { version = "4.6.0", features = ["derive"] }
 parking_lot = "0.12.5"
-thiserror = "2.0.18"
-tokio = "1.51.1"
