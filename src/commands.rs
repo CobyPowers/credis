@@ -122,6 +122,7 @@ where
             "incr" => self.incr(args),
             "multi" => self.multi(),
             "exec" => self.exec(),
+            "discard" => self.discard(),
             _ => Err(CommandError::InvalidCommand(cmd)),
         }
     }
@@ -474,10 +475,20 @@ where
         self.multi_mode = false;
 
         let cmds: Vec<_> = self.cmd_queue.drain(..).collect();
-        let outputs: Vec<_> = cmds
-            .into_iter()
-            .map(|(cmd, args)| self.exec_cmd(cmd, args).unwrap())
-            .collect();
+        let mut outputs = vec![];
+        for (cmd, args) in cmds {
+            outputs.push(self.exec_cmd(cmd, args)?);
+        }
         Ok(resp_arr!(outputs))
+    }
+
+    fn discard(&mut self) -> CommandResult {
+        if !self.multi_mode {
+            return Ok(resp_serr!("ERR DISCARD without MULTI"));
+        }
+
+        self.multi_mode = false;
+        self.cmd_queue.clear();
+        Ok(resp_sstr!("OK"))
     }
 }
