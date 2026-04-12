@@ -135,7 +135,7 @@ where
             None => return Ok(()),
         };
 
-        if self.multi_mode && cmd != "exec" {
+        if self.multi_mode && cmd != "exec" && cmd != "discard" {
             self.cmd_queue.push_back((cmd, args));
             return Ok(self.rp.encode(&resp_sstr!("QUEUED"))?);
         }
