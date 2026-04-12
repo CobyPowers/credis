@@ -54,7 +54,7 @@ impl Server {
         let args = ServerArgs::parse();
 
         let role = match args.replica_host {
-            Some(x) => ReplicationRole::Slave(x),
+            Some(x) => ReplicationRole::Slave(x.replace(" ", ":")),
             None => ReplicationRole::Master,
         };
 
