@@ -1,5 +1,5 @@
 use std::{
-    io::{self, BufReader, BufWriter},
+    io,
     net::{TcpListener, TcpStream},
     thread,
 };
@@ -8,7 +8,7 @@ use clap::Parser;
 
 use crate::{
     commands::{CommandError, CommandHandler, SharedCommandContext},
-    resp::RespParser,
+    resp::{RespKind, RespParser},
 };
 
 #[derive(Default)]
@@ -100,7 +100,7 @@ impl Server {
         }
     }
 
-    pub fn handle_stream(&self, stream: TcpStream) {
+    pub fn handle_listener_stream(&self, stream: TcpStream) {
         let ctx = self.ctx.clone();
         thread::spawn(move || {
             let rp = RespParser::new(&stream);
@@ -119,6 +119,31 @@ impl Server {
                         eprintln!("Error: Received invalid command `{cmd}`");
                     }
                 }
+            }
+        });
+    }
+
+    pub fn handle_replica_stream(&self, stream: TcpStream) {
+        let port = self.port;
+        thread::spawn(move || {
+            let mut rp = RespParser::new(&stream);
+            rp.encode(&resp_arr!(vec![resp_bstr!("PING")])).unwrap();
+
+            let res = rp.decode().unwrap();
+            if res == RespKind::SimpleString("PING".to_string()) {
+                rp.encode(&resp_arr!(vec![
+                    resp_bstr!("REPLCONF"),
+                    resp_bstr!("listening-port"),
+                    resp_bstr!(port)
+                ]))
+                .unwrap();
+
+                rp.encode(&resp_arr!(vec![
+                    resp_bstr!("REPLCONF"),
+                    resp_bstr!("capa"),
+                    resp_bstr!("psync2")
+                ]))
+                .unwrap();
             }
         });
     }

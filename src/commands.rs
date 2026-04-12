@@ -109,6 +109,7 @@ impl<'a> CommandHandler<'a> {
             "exec" => self.exec(),
             "discard" => self.discard(),
             "info" => self.info(args),
+            "replconf" => self.replconf(args),
             _ => Err(CommandError::InvalidCommand(cmd)),
         }
     }
@@ -496,5 +497,9 @@ impl<'a> CommandHandler<'a> {
         } else {
             Ok(resp_nbstr!())
         }
+    }
+
+    fn replconf(&self, _: ArgumentParser) -> CommandResult {
+        Ok(resp_sstr!("OK"))
     }
 }
