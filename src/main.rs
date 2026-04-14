@@ -18,8 +18,8 @@ fn main() {
 
     // If node is a replica, establish connection to master
     if !server.is_master() {
-        let stream = server.connect_replica().unwrap();
-        server.handle_replica_stream(stream);
+        let stream = server.connect_master().unwrap();
+        server.handle_master_stream(stream);
     }
 
     // Periodically sweep store and remove expired entries
@@ -27,15 +27,11 @@ fn main() {
     thread::spawn(move || {
         loop {
             thread::sleep(STORE_SWEEP_INTERVAL);
-
-            {
-                let mut store = ctx.inner.store.write();
-                store.sweep();
-            }
+            ctx.inner.store.write().sweep();
         }
     });
 
-    // Handle incoming connections
+    // Handle client connections
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => server.handle_listener_stream(stream),

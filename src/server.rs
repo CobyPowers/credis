@@ -93,7 +93,7 @@ impl Server {
         listener
     }
 
-    pub fn connect_replica(&self) -> io::Result<TcpStream> {
+    pub fn connect_master(&self) -> io::Result<TcpStream> {
         match self.get_repl_addr() {
             Some(addr) => TcpStream::connect(addr),
             None => panic!("Attempted to connect to replica as master"),
@@ -123,42 +123,41 @@ impl Server {
         });
     }
 
-    pub fn handle_replica_stream(&self, stream: TcpStream) {
+    pub fn handle_master_stream(&self, stream: TcpStream) {
+        let ctx = self.ctx.clone();
         let port = self.port;
         thread::spawn(move || {
             let mut rp = RespParser::new(&stream);
+
             rp.encode(&resp_arr!(vec![resp_bstr!("PING")])).unwrap();
-
-            let res = rp.decode().unwrap();
-            if res == RespKind::SimpleString("PONG".to_string()) {
-                rp.encode(&resp_arr!(vec![
-                    resp_bstr!("REPLCONF"),
-                    resp_bstr!("listening-port"),
-                    resp_bstr!(port)
-                ]))
-                .unwrap();
-
-                rp.decode().unwrap();
-
-                rp.encode(&resp_arr!(vec![
-                    resp_bstr!("REPLCONF"),
-                    resp_bstr!("capa"),
-                    resp_bstr!("psync2")
-                ]))
-                .unwrap();
-
-                rp.decode().unwrap();
-
-                rp.encode(&resp_arr!(vec![
-                    resp_bstr!("PSYNC"),
-                    resp_bstr!("?"),
-                    resp_bstr!("-1")
-                ]))
-                .unwrap();
+            if rp.decode() != Ok(resp_sstr!("PONG")) {
+                panic!("Replica master node sent invalid response to `PING`");
             }
 
+            rp.encode(&resp_cmd!("REPLCONF", "listening-port", port))
+                .unwrap();
+            if rp.decode() != Ok(resp_sstr!("OK")) {
+                panic!("Replica master node sent invalid response to `REPLCONF`");
+            }
+
+            rp.encode(&resp_cmd!("REPLCONF", "capa", "psync2")).unwrap();
+            if rp.decode() != Ok(resp_sstr!("OK")) {
+                panic!("Replica master node sent invalid response to `REPLCONF`");
+            }
+
+            rp.encode(&resp_cmd!("PSYNC", "?", "-1")).unwrap();
+            let _ = rp.decode(); // FULLRESYNC
+            let _ = rp.decode(); // RDB FILE
+
+            // let store = self.ctx.inner.store.write();
+            // store.load_rdb_file(...);
+
+            // Command handler uses a shared context, so any
+            // commands received from the master node are treated
+            // as if they came from a client
+            let mut handler = CommandHandler::new(rp, ctx);
             loop {
-                rp.decode().unwrap();
+                let _ = handler.parse();
             }
         });
     }

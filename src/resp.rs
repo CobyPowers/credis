@@ -12,6 +12,7 @@ pub enum RespKind {
     SimpleString(String),
     BulkString(String),
     VerbatimString(String, String),
+    RdbFile(Vec<u8>),
     Integer(i64),
     Double(f64),
     BigNumber(String),
@@ -38,6 +39,10 @@ impl RespKind {
                 encoding,
                 val,
             ),
+            Self::RdbFile(val) => {
+                let s: String = val.into_iter().map(|b| *b as char).collect();
+                format!("${}\r\n{}", val.len(), s)
+            }
             Self::Integer(val) => format!(":{:+}\r\n", val),
             Self::Double(val) => format!(",{:.2e}\r\n", val),
             Self::BigNumber(val) => format!("({}\r\n", val),
@@ -143,12 +148,10 @@ pub enum RespError {
     DecodeError,
     EncodeError,
     InvalidType,
-    InvalidKey,
     InvalidStr,
     InvalidLength,
     InvalidInt,
     InvalidDouble,
-    MismatchedLength,
     MissingTerminator,
 }
 
@@ -304,13 +307,16 @@ impl<'a> RespParser<'a> {
 
     fn consume_sized_terminated_str(data: &mut &str) -> Result<String, RespError> {
         let len_val = Self::consume_terminated_len(data)?;
-        let str_val = Self::consume_terminated_str(data)?;
+        let str_val = (&data[..len_val]).to_string();
 
-        if len_val == str_val.len() {
-            Ok(str_val)
-        } else {
-            Err(RespError::MismatchedLength)
+        // Some strings (like rdb file strings) do not contain a terminator,
+        // so let's only remove the terminator if one is present
+        *data = &data[len_val..];
+        if &data[..2] == "\r\n" {
+            *data = &data[2..];
         }
+
+        Ok(str_val)
     }
 
     fn consume_terminated_len(data: &mut &str) -> Result<usize, RespError> {
@@ -374,6 +380,12 @@ macro_rules! resp_arr {
 macro_rules! resp_narr {
     () => {
         RespKind::NullArray
+    };
+}
+
+macro_rules! resp_cmd {
+    ( $($arg:expr),+ ) => {
+        RespKind::Array(vec![$(RespKind::BulkString(($arg).to_string())),+])
     };
 }
 
